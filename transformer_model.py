@@ -168,7 +168,7 @@ def self_attention(query, key, value, dropout=None, mask=None):
     """
     d_k = query.size(-1)  # 防止softmax未来求梯度消失时的d_k
     # Q,K相似度计算公式：\frac{Q^TK}{\sqrt{d_k}}
-    scores = torch.matmul(query, key.transpose(-2, -1)) / math.sqrt(d_k)  # Q,K相似度计算
+    scores = torch.matmul(query, key.transpose(-2, -1)) / math.sqrt(d_k)  # Q,K相似度计算 K转置 * Q
     # 判断是否要mask，注：mask的操作在QK之后，softmax之前
     if mask is not None:
         """
@@ -281,6 +281,7 @@ class FeedForward(nn.Module):
         """
         :param x: 输入数据，形状为(batch_size, input_len, model_dim)
         :return: 输出数据（FloatTensor），形状为(batch_size, input_len, model_dim)
+        w2((relu(w1(layer_norm(x))+b1))+b2
         """
         inter = self.dropout_1(self.relu(self.w_1(self.layer_norm(x))))
         output = self.dropout_2(self.w_2(inter))
