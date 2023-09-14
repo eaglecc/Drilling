@@ -16,7 +16,7 @@ plt.rcParams['font.sans-serif'] = ['SimHei']  # 图例中显示中文
 plt.rcParams['axes.unicode_minus'] = False  # 用来正常显示负号
 
 # 导入数据
-data = pd.read_csv('../data/Well1_EPOR0_1.csv')
+data = pd.read_csv('../data/Well4_EPOR0_1.csv')
 # data.dropna(axis=0, how='any')  #只要行中包含任何一个缺失值，就删除整行。
 data_x = data[['GR', 'DENSITY', 'NPHI', 'VSHALE', 'DPHI', 'EPOR0','LITH']]
 data_y = data['DEPTH']

@@ -1,6 +1,6 @@
 """
 __author__ = 'Cheng Yuchao'
-__project__: 实验3:修改滑动窗口为用两边的预测中间的
+__project__: 实验4：增加岩性特征
 __time__:  2023/09/11
 __email__:"2477721334@qq.com"
 """
@@ -25,7 +25,7 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 data = pd.read_csv('../data/Well4_EPOR0_1.csv')
 # data.dropna(axis=0, how='any')  #只要行中包含任何一个缺失值，就删除整行。
 data = data.fillna(0)  # 将数据中的所有缺失值替换为0
-data_x = data[['GR', 'NPHI', 'VSHALE', 'DPHI', 'EPOR0']].values
+data_x = data[['GR', 'NPHI', 'VSHALE', 'DPHI', 'EPOR0','LITH']].values
 data_y = data['DENSITY'].values
 
 # Z-Score归一化 z = (x - mean) / std
@@ -60,10 +60,9 @@ class DataSet(Data.Dataset):
     def __len__(self):
         return len(self.inputs)
 
-
 Batch_Size = 32
 DataSet = DataSet(np.array(data_4_x), list(data_4_y))
-train_size = int(len(data_4_x) * 0.75)
+train_size = int(len(data_4_x) * 0.8)
 test_size = len(data_4_y) - train_size
 
 # 划分训练集和测试集
@@ -218,7 +217,7 @@ class Transformer(nn.Module):
         return out
 
 
-model = Transformer(n_encoder_inputs=5, n_decoder_inputs=5, Sequence_length=4).to(device)
+model = Transformer(n_encoder_inputs=6, n_decoder_inputs=6, Sequence_length=4).to(device)
 
 
 def test():
@@ -295,7 +294,7 @@ if train_model:
     plt.show()
 
 # 加载模型预测
-model = Transformer(n_encoder_inputs=5, n_decoder_inputs=5, Sequence_length=4).to(device)
+model = Transformer(n_encoder_inputs=6, n_decoder_inputs=6, Sequence_length=4).to(device)
 model.load_state_dict(torch.load('best_Transformer_trainModel.pth'))
 model.to(device)
 model.eval()
