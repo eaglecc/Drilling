@@ -22,7 +22,7 @@ plt.rcParams['axes.unicode_minus'] = False  # 用来正常显示负号
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # 导入数据
-data = pd.read_csv('../data/Well4_EPOR0_1.csv')
+data = pd.read_csv('../data/Well_Merge_All_Data.csv')
 # data.dropna(axis=0, how='any')  #只要行中包含任何一个缺失值，就删除整行。
 data = data.fillna(0)  # 将数据中的所有缺失值替换为0
 data_x = data[['GR', 'NPHI', 'VSHALE', 'DPHI', 'EPOR0', 'LITH']].values
@@ -41,17 +41,17 @@ for lith_value in unique_lith_values:
     lith_targets[lith_value] = data_y[lith_condition,]
 
 # 根据字典大小训练各自对应的模型
-lith_0_train = lith_arrays.get(0)
 lith_1_train = lith_arrays.get(1)
 lith_2_train = lith_arrays.get(2)
-lith_0_targets = lith_targets.get(0)
+lith_3_train = lith_arrays.get(3)
 lith_1_targets = lith_targets.get(1)
 lith_2_targets = lith_targets.get(2)
+lith_3_targets = lith_targets.get(3)
 
 
 # 使用对应岩性的数据集替换原数据(手动替换3次，得到三个训练模型)
-data_x = lith_2_train
-data_y = lith_2_targets
+data_x = lith_3_train
+data_y = lith_3_targets
 
 
 # 四个数据划分为一组，用前三个数据预测后一个
@@ -79,7 +79,7 @@ class DataSet(Data.Dataset):
 
 Batch_Size = 32
 DataSet = DataSet(np.array(data_5_x), list(data_5_y))
-train_size = int(len(data_5_x) * 0.9)
+train_size = int(len(data_5_x) * 0.85)
 test_size = len(data_5_y) - train_size
 
 # 划分训练集和测试集
@@ -191,7 +191,8 @@ class Transformer(nn.Module):
         # 位置信息编码
         positional_encoding = self.input_positional_encoding(src_start)
         # 将位置编码添加到输入序列中，并输入编码器中
-        src = positional_encoding + pos_encoder + src_start
+        # src = positional_encoding + pos_encoder + src_start
+        src = positional_encoding + pos_encoder
         src = self.encoder(src) + src_start
         return src
 
@@ -209,7 +210,8 @@ class Transformer(nn.Module):
         pos_decoder = self.target_pos_embedding(pos_decoder).permute(1, 0, 2)
         # 位置信息编码
         positional_encoding = self.input_positional_encoding(tgt_start)
-        tgt = positional_encoding + pos_decoder + tgt_start
+        tgt = positional_encoding + pos_decoder
+        # tgt = positional_encoding + pos_decoder + tgt_start
         # 掩码
         tgt_mask = transformer_generate_tgt_mask(out_sequence_len, tgt.device)
         # 送到解码器模型中
@@ -256,7 +258,7 @@ optimizer = torch.optim.Adagrad(model.parameters(), lr=0.0001)
 criterion = torch.nn.MSELoss().to(device)
 
 # 训练模型
-train_model = False
+train_model = True
 if train_model:
     val_loss = []
     train_loss = []
@@ -287,7 +289,7 @@ if train_model:
             best_test_loss = val_epoch_loss
             best_model = model
             print("best_test_loss ---------------------------", best_test_loss)
-            torch.save(best_model.state_dict(), 'Transformer_trainModel_LITH2.pth')
+            torch.save(best_model.state_dict(), 'Transformer_trainModel_LITH3.pth')
 
     # 加载上一次的loss
     # train_loss = np.load('modelloss/loss.npz')['y1'].reshape(-1, 1)
@@ -312,7 +314,7 @@ if train_model:
 
 # 加载模型预测
 model = Transformer(n_encoder_inputs=6, n_decoder_inputs=6, Sequence_length=4).to(device)
-model.load_state_dict(torch.load('Transformer_trainModel_LITH2.pth'))
+model.load_state_dict(torch.load('Transformer_trainModel_LITH3.pth'))
 model.to(device)
 model.eval()
 # 在对模型进行评估时，应该配合使用wit torch.nograd() 与 model.eval()
@@ -322,7 +324,7 @@ y_pred = []
 y_true = []
 with torch.no_grad():
     val_epoch_loss = []
-    for index, (inputs, targets) in enumerate(TrainDataLoader):
+    for index, (inputs, targets) in enumerate(TestDataLoader):
         inputs = torch.tensor(inputs).to(device)
         targets = torch.tensor(targets).to(device)
         inputs = inputs.float()

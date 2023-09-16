@@ -16,7 +16,7 @@ plt.rcParams['font.sans-serif'] = ['SimHei']  # 图例中显示中文
 plt.rcParams['axes.unicode_minus'] = False  # 用来正常显示负号
 
 # 导入数据
-data = pd.read_csv('../data/Well4_EPOR0_1.csv')
+data = pd.read_csv('../data/Well6_EPOR0_1.csv')
 # data.dropna(axis=0, how='any')  #只要行中包含任何一个缺失值，就删除整行。
 data_x = data[['GR', 'DENSITY', 'NPHI', 'VSHALE', 'DPHI', 'EPOR0','LITH']]
 data_y = data['DEPTH']
@@ -83,5 +83,5 @@ ax[6].set_yticklabels([])
 for i in range(len(ax)):
     ax[i].set_xlim(zmin, zmax)  # 设置子图的x轴范围，即设置深度的上限和下限。
 
-f.suptitle('Well1', fontsize=14, y=0.94)
+f.suptitle('Well6', fontsize=14, y=0.94)
 plt.show()
