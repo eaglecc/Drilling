@@ -1,7 +1,7 @@
 """
 __author__ = 'Cheng Yuchao'
-__project__: 实验6:添加归一化:Z-Score效果更好，调大滑动窗口至100
-__time__:  2023/09/16
+__project__: 实验9:调整模型输入输出
+__time__:  2023/09/18
 __email__:"2477721334@qq.com"
 """
 import numpy as np
@@ -42,9 +42,9 @@ data_y = (data_y - data_y.mean()) / data_y.std()
 data_4_x = []
 data_4_y = []
 
-for i in range(0, len(data_y) - 100, 1):
-    data_4_x.append(data_x[i:i + 99])
-    data_4_y.append(data_y[i + 100])
+for i in range(0, len(data_y) - 45, 1):
+    data_4_x.append(data_x[i:i + 44])
+    data_4_y.append(data_y[i + 45])
     # data_4_x.append(data_x[[i, i + 1, i + 3, i + 4], :])
     # data_4_y.append(data_y[i + 2])
 
@@ -176,7 +176,8 @@ class Transformer(nn.Module):
         # 位置信息编码
         positional_encoding = self.input_positional_encoding(src_start)
         # 将位置编码添加到输入序列中，并输入编码器中
-        src = positional_encoding + pos_encoder + src_start
+        # src = positional_encoding + pos_encoder + src_start
+        src = positional_encoding + pos_encoder
         src = self.encoder(src) + src_start
         return src
 
@@ -190,11 +191,12 @@ class Transformer(nn.Module):
             .unsqueeze(0)
             .repeat(batch_size, 1)
         )
-        # 对输入数据编码
+        # 对输入数据嵌入编码
         pos_decoder = self.target_pos_embedding(pos_decoder).permute(1, 0, 2)
         # 位置信息编码
         positional_encoding = self.input_positional_encoding(tgt_start)
-        tgt = positional_encoding + pos_decoder + tgt_start
+        tgt = positional_encoding + pos_decoder
+        # tgt = positional_encoding + pos_decoder + tgt_start
         # 掩码
         tgt_mask = transformer_generate_tgt_mask(out_sequence_len, tgt.device)
         # 送到解码器模型中
@@ -217,11 +219,12 @@ class Transformer(nn.Module):
         out = self.decode_out(tgt=target_in, memory=src)
         # 使用全连接变成[batch,1]构成基于transformer的回归单值预测
         out = out.squeeze(2)  # shape:[16,3,1]-->[16,3]
+        # out = out[:, -1, :]
         out = self.ziji_add_linear(out)  # [16,3]-->[16,1]
         return out
 
 
-model = Transformer(n_encoder_inputs=6, n_decoder_inputs=6, Sequence_length=99).to(device)
+model = Transformer(n_encoder_inputs=6, n_decoder_inputs=6, Sequence_length=44).to(device)
 
 
 def test():
@@ -238,12 +241,12 @@ def test():
     return np.mean(val_epoch_loss)
 
 
-epochs = 80
+epochs = 50
 optimizer = torch.optim.Adam(model.parameters(), lr=0.0001)
 criterion = torch.nn.MSELoss().to(device)
 
 # 训练模型
-train_model = False
+train_model = True
 if train_model:
     val_loss = []
     train_loss = []
@@ -274,7 +277,7 @@ if train_model:
             best_test_loss = val_epoch_loss
             best_model = model
             print("best_test_loss ---------------------------", best_test_loss)
-            torch.save(best_model.state_dict(), 'best_Transformer_trainModel6.pth')
+            torch.save(best_model.state_dict(), 'best_Transformer_trainModel9.pth')
 
     # 加载上一次的loss
     # train_loss = np.load('modelloss/loss.npz')['y1'].reshape(-1, 1)
@@ -298,8 +301,8 @@ if train_model:
     plt.show()
 
 # 加载模型预测
-model = Transformer(n_encoder_inputs=6, n_decoder_inputs=6, Sequence_length=99).to(device)
-model.load_state_dict(torch.load('best_Transformer_trainModel6.pth'))
+model = Transformer(n_encoder_inputs=6, n_decoder_inputs=6, Sequence_length=44).to(device)
+model.load_state_dict(torch.load('best_Transformer_trainModel9.pth'))
 model.to(device)
 model.eval()
 # 在对模型进行评估时，应该配合使用wit torch.nograd() 与 model.eval()

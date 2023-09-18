@@ -1,6 +1,6 @@
 """
 __author__ = 'Cheng Yuchao'
-__project__: 实验6:添加归一化:Z-Score效果更好，调大滑动窗口至25
+__project__: 实验7：添加CNN 模块提取特征
 __time__:  2023/09/16
 __email__:"2477721334@qq.com"
 """
@@ -25,7 +25,7 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 data = pd.read_csv('../data/Well4_EPOR0_1.csv')
 # data.dropna(axis=0, how='any')  #只要行中包含任何一个缺失值，就删除整行。
 data = data.fillna(0)  # 将数据中的所有缺失值替换为0
-data_x = data[['DENSITY', 'NPHI', 'VSHALE', 'DPHI', 'EPOR0' , 'LITH']].values
+data_x = data[['DENSITY', 'NPHI', 'VSHALE', 'DPHI', 'EPOR0', 'LITH']].values
 data_y = data['GR'].values
 
 # Z-Score归一化 z = (x - mean) / std
@@ -77,6 +77,42 @@ TrainDataLoader = Data.DataLoader(train_dataset, batch_size=Batch_Size, shuffle=
 TestDataLoader = Data.DataLoader(test_dataset, batch_size=Batch_Size, shuffle=False, drop_last=True)
 
 
+# CNN层
+class ResCNN(nn.Module):
+    def __init__(self, in_channels, out_channels, kernel_size, padding, stride):
+        """
+        Args:
+            in_channels: (int)  64
+            out_channels: (int) 64
+            kernel_size: (int)  11
+            padding: (int)   5
+            stride: (int)    1
+        """
+        super().__init__()
+        self.conv = nn.Sequential(
+            # 第一个卷积层
+            nn.Conv1d(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size, padding=padding,
+                      stride=stride),
+            nn.BatchNorm1d(out_channels),
+            nn.ReLU(),
+            # 第二个卷积层
+            nn.Conv1d(in_channels=out_channels, out_channels=out_channels, kernel_size=kernel_size, padding=padding,
+                      stride=stride),
+            nn.BatchNorm1d(out_channels),
+            nn.ReLU(),
+        )
+
+    def forward(self, x):
+        """
+        Args:
+            x: [Batch,Channel,Length]
+        Returns:
+        """
+        identity = x
+        out = self.conv(x)
+        return identity + out
+
+
 # 位置编码
 class PositionalEncoding(nn.Module):
     def __init__(self, d_model, dropout=0.1, max_len=5000):
@@ -119,7 +155,7 @@ def transformer_generate_tgt_mask(length, device):
 
 # Transformer结构
 class Transformer(nn.Module):
-    def __init__(self, n_encoder_inputs, n_decoder_inputs, Sequence_length, d_model=512, dropout=0.1, num_layer=8):
+    def __init__(self, n_encoder_inputs, n_decoder_inputs, Sequence_length, d_model=512, dropout=0.1, num_layer=8 , rescnn_feature_num = 64):
         """
         初始化
         :param n_encoder_inputs: 输入数据的特征维度
@@ -132,7 +168,17 @@ class Transformer(nn.Module):
         # 调用父类的构造函数
         super(Transformer, self).__init__()
 
-        # 创建输入序列位置编码和目标序列位置编码的嵌入层
+        # CNN层
+        self.conv1 = nn.Sequential(
+            nn.Conv1d(in_channels=n_encoder_inputs, out_channels=rescnn_feature_num, kernel_size=11, padding=5, stride=1),
+            nn.BatchNorm1d(rescnn_feature_num),
+            nn.ReLU())
+
+        self.rescnn = nn.ModuleList(
+            [ResCNN(in_channels=rescnn_feature_num, out_channels=rescnn_feature_num, kernel_size=11, padding=5, stride=1) for i
+             in range(2)])
+
+        # 位置编码层
         self.input_positional_encoding = PositionalEncoding(d_model, max_len=Sequence_length)
         self.target_positional_encoding = PositionalEncoding(d_model, max_len=Sequence_length)
 
@@ -157,6 +203,7 @@ class Transformer(nn.Module):
         # 创建一个线性层用于最终的输出
         self.linear = torch.nn.Linear(d_model, 1)
         self.ziji_add_linear = torch.nn.Linear(Sequence_length, 1)
+        self.rescnn_linear_layer = nn.Linear(rescnn_feature_num, n_encoder_inputs)
 
     def encode_in(self, src):
         # 对输入进行线性投影
@@ -210,12 +257,24 @@ class Transformer(nn.Module):
                     其中 sequence_length 是解码器输入序列的长度，batch_size 是批次大小，n_decoder_inputs 是解码器输入特征的维度。
         :return:
         '''
+        # cnn
+        src = src.permute(0, 2, 1)
+        # conv1: [B,C,L]-->[B,feature_num,L]  [32,6,24] --> [32,64,24]
+        src = self.conv1(src)
+        # rescnn:[B,feature_num,L]-->[B,feature_num,L]
+        for rescnnmodel in self.rescnn:
+            src = rescnnmodel(src)
+        # 使用线性层进行变换
+        src = self.rescnn_linear_layer(src.view(-1, 64))  # 将输入展平为(32*24, 64)，然后通过线性层
+        # 转换后的输出形状为(32*24, 6)，将其重新调整为(32, 6, 24)
+        src = src.view(32, 24, 6)
+        # encoder
         src = self.encode_in(src)
+        # decoder
         out = self.decode_out(tgt=target_in, memory=src)
         # 使用全连接变成[batch,1]构成基于transformer的回归单值预测
         out = out.squeeze(2)  # shape:[16,3,1]-->[16,3]
         out = self.ziji_add_linear(out)  # [16,3]-->[16,1]
-        # out = out[:, 0]
         return out
 
 
@@ -236,7 +295,7 @@ def test():
     return np.mean(val_epoch_loss)
 
 
-epochs = 80
+epochs = 100
 optimizer = torch.optim.Adam(model.parameters(), lr=0.0001)
 criterion = torch.nn.MSELoss().to(device)
 
@@ -307,7 +366,7 @@ y_pred = []
 y_true = []
 with torch.no_grad():
     val_epoch_loss = []
-    for index, (inputs, targets) in enumerate(TrainDataLoader):
+    for index, (inputs, targets) in enumerate(TestDataLoader):
         inputs = torch.tensor(inputs).to(device)
         targets = torch.tensor(targets).to(device)
         inputs = inputs.float()
