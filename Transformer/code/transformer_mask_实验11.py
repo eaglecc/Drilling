@@ -1,6 +1,6 @@
 """
 __author__ = 'Cheng Yuchao'
-__project__: 实验10: 实现MWLT网络
+__project__: 实验11：将MWLT的Decoder部分改为传统的Transformer的Decoder，Mask设置为None
 __time__:  2023/09/18
 __email__:"2477721334@qq.com"
 """
@@ -67,7 +67,8 @@ test_size = len(data_4_y) - train_size
 # 划分训练集和测试集
 train_dataset = torch.utils.data.Subset(DataSet, list(range(train_size)))  # 训练集包含数据集的前 train_size 个数据
 test_dataset = torch.utils.data.Subset(DataSet, list(range(train_size, len(data_4_x))))  # 测试集包含后 test_size 个数据
-TrainDataLoader = Data.DataLoader(train_dataset, batch_size=Batch_Size, shuffle=False,drop_last=True)  # shuffle=False:不打乱顺序
+TrainDataLoader = Data.DataLoader(train_dataset, batch_size=Batch_Size, shuffle=False,
+                                  drop_last=True)  # shuffle=False:不打乱顺序
 TestDataLoader = Data.DataLoader(test_dataset, batch_size=Batch_Size, shuffle=False, drop_last=True)
 
 
@@ -362,6 +363,18 @@ class Transformer(nn.Module):
                                                     attn_drop=attn_drop,
                                                     act_layer=act_layer, norm_layer=norm_layer)
         self.decoder = Decoder(out_channels=out_channels, feature_num=feature_num, res_num=res_num)
+        decoder_layer = torch.nn.TransformerDecoderLayer(d_model=dim, nhead=4, dropout=drop,
+                                                         dim_feedforward=2 * dim)
+        self.transformer_decoder = torch.nn.TransformerDecoder(decoder_layer, num_layers=4)
+        self.linear = torch.nn.Linear(dim, 1)
+
+    def decode_out(self, tgt, memory):
+        # 掩码
+        # tgt_mask = transformer_generate_tgt_mask(out_sequence_len, tgt.device)
+        # 送到解码器模型中
+        out = self.transformer_decoder(tgt=tgt, memory=memory, tgt_mask=None)
+        out = self.linear(out)
+        return out
 
     def forward(self, x):
         x = x.permute(0, 2, 1)
@@ -370,13 +383,16 @@ class Transformer(nn.Module):
         x = x.transpose(-2, -1)
         if self.use_pe:
             x = self.position_embedding(x)
+        tgt_in = x
         # [B, L, feature_num] --> [B, L, feature_num]
         x = self.transformer_encdoer(x)
+        out = self.decode_out(tgt=tgt_in, memory=x)
         # [B,  L, feature_num] --> [B, feature_num,L]
-        x = x.transpose(-2, -1)
+        out = out.transpose(-2, -1)
         # [[B, feature_num,L] --> [B,out_channels,L]
-        x = self.decoder(x)
-        return x
+        # x = self.decoder(x)
+
+        return out
 
 
 model = Transformer(in_channels=6, out_channels=1, feature_num=64).to(device)
@@ -432,7 +448,7 @@ if train_model:
             best_test_loss = val_epoch_loss
             best_model = model
             print("best_test_loss ---------------------------", best_test_loss)
-            torch.save(best_model.state_dict(), './pth/best_Transformer_trainModel10.pth')
+            torch.save(best_model.state_dict(), './pth/best_Transformer_trainModel11.pth')
 
     # 加载上一次的loss
     # train_loss = np.load('modelloss/loss.npz')['y1'].reshape(-1, 1)
@@ -457,7 +473,7 @@ if train_model:
 
 # 加载模型预测
 model = Transformer(in_channels=6, out_channels=1, feature_num=64).to(device)
-model.load_state_dict(torch.load('./pth/best_Transformer_trainModel10.pth'))
+model.load_state_dict(torch.load('./pth/best_Transformer_trainModel11.pth'))
 model.to(device)
 model.eval()
 # 在对模型进行评估时，应该配合使用wit torch.nograd() 与 model.eval()
@@ -477,7 +493,6 @@ with torch.no_grad():
         targets = list(targets.cpu().numpy().reshape([1, -1])[0])
         y_pred.extend(outputs)
         y_true.extend(targets)
-
 
 # 画折线图
 print("y_pred", y_pred)
