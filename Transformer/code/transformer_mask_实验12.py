@@ -1,6 +1,6 @@
 """
 __author__ = 'Cheng Yuchao'
-__project__: 实验10: 实现MWLT网络
+__project__: 实验12:修改Position Encoding部分
 __time__:  2023/09/18
 __email__:"2477721334@qq.com"
 """
@@ -67,7 +67,8 @@ test_size = len(data_4_y) - train_size
 # 划分训练集和测试集
 train_dataset = torch.utils.data.Subset(DataSet, list(range(train_size)))  # 训练集包含数据集的前 train_size 个数据
 test_dataset = torch.utils.data.Subset(DataSet, list(range(train_size, len(data_4_x))))  # 测试集包含后 test_size 个数据
-TrainDataLoader = Data.DataLoader(train_dataset, batch_size=Batch_Size, shuffle=False,drop_last=True)  # shuffle=False:不打乱顺序
+TrainDataLoader = Data.DataLoader(train_dataset, batch_size=Batch_Size, shuffle=False,
+                                  drop_last=True)  # shuffle=False:不打乱顺序
 TestDataLoader = Data.DataLoader(test_dataset, batch_size=Batch_Size, shuffle=False, drop_last=True)
 
 
@@ -154,6 +155,155 @@ class ResCNN(nn.Module):
         return identity + out
 
 
+class LearnablePositionalEncoding(nn.Module):
+    def __init__(self, d_model, dropout=0.1, max_len=1024):
+        super(LearnablePositionalEncoding, self).__init__()
+        self.dropout = nn.Dropout(p=dropout)
+        self.pe = nn.Parameter(torch.empty(max_len, d_model))  # 可学习的参数
+        nn.init.uniform_(self.pe, -0.02, 0.02)
+
+    def forward(self, x):
+        r"""Inputs of forward function
+        Args:
+            x: the sequence fed to the positional encoder model (required).
+        Shape:
+            x: [sequence length, batch size, embed dim]
+            output: [sequence length, batch size, embed dim]
+        """
+        # x = x + self.pe
+        x = x + self.pe[:x.size(1), :]
+        return self.dropout(x)
+
+
+class Attention_Rel_Scl(nn.Module):  # Equation 14 page 12
+    def __init__(self, emb_size, num_heads, seq_len, dropout):
+        super().__init__()
+        self.seq_len = seq_len
+        self.num_heads = num_heads
+
+        self.scale = emb_size ** -0.5
+        # self.to_qkv = nn.Linear(inp, inner_dim * 3, bias=False)
+        self.key = nn.Linear(emb_size, emb_size, bias=False)
+        self.value = nn.Linear(emb_size, emb_size, bias=False)
+        self.query = nn.Linear(emb_size, emb_size, bias=False)
+
+        self.relative_bias_table = nn.Parameter(torch.zeros((2 * self.seq_len - 1), num_heads))
+        coords = torch.meshgrid((torch.arange(1), torch.arange(self.seq_len)))
+        coords = torch.flatten(torch.stack(coords), 1)
+        relative_coords = coords[:, :, None] - coords[:, None, :]
+        relative_coords[1] += self.seq_len - 1
+        relative_coords = relative_coords.permute(1, 2, 0)  #c h w -> h w c
+        relative_index = relative_coords.sum(-1).flatten().unsqueeze(1)
+        self.register_buffer("relative_index", relative_index)
+
+        self.dropout = nn.Dropout(dropout)
+        self.to_out = nn.LayerNorm(emb_size)
+
+    def forward(self, x):
+        batch_size, seq_len, _ = x.shape
+        k = self.key(x).reshape(batch_size, seq_len, self.num_heads, -1).permute(0, 2, 3, 1)
+        v = self.value(x).reshape(batch_size, seq_len, self.num_heads, -1).transpose(1, 2)
+        q = self.query(x).reshape(batch_size, seq_len, self.num_heads, -1).transpose(1, 2)
+        # k,v,q shape = (batch_size, num_heads, seq_len, d_head)
+
+        attn = torch.matmul(q, k) * self.scale
+        # attn shape (seq_len, seq_len)
+        attn = nn.functional.softmax(attn, dim=-1)
+
+        # Use "gather" for more efficiency on GPUs
+        relative_bias = self.relative_bias_table.gather(0, self.relative_index.repeat(1, 8))
+        # relative_bias = rearrange(relative_bias, '(h w) c -> 1 c h w', h=1 * self.seq_len, w=1 * self.seq_len)
+        relative_bias = relative_bias.permute(1, 0).unsqueeze(0).unsqueeze(2).unsqueeze(3)
+        attn = attn + relative_bias
+
+        # distance_pd = pd.DataFrame(relative_bias[0,0,:,:].cpu().detach().numpy())
+        # distance_pd.to_csv('scalar_position_distance.csv')
+
+        out = torch.matmul(attn, v)
+        # out.shape = (batch_size, num_heads, seq_len, d_head)
+        out = out.transpose(1, 2)
+        # out.shape == (batch_size, seq_len, num_heads, d_head)
+        out = out.reshape(batch_size, seq_len, -1)
+        # out.shape == (batch_size, seq_len, d_model)
+        out = self.to_out(out)
+        return out
+
+class Attention_Rel_Vec(nn.Module):
+    def __init__(self, emb_size, num_heads, seq_len, dropout):
+        super().__init__()
+        self.seq_len = seq_len
+        self.num_heads = num_heads
+        self.scale = emb_size ** -0.5
+        # self.to_qkv = nn.Linear(inp, inner_dim * 3, bias=False)
+        self.key = nn.Linear(emb_size, emb_size, bias=False)
+        self.value = nn.Linear(emb_size, emb_size, bias=False)
+        self.query = nn.Linear(emb_size, emb_size, bias=False)
+
+        self.Er = nn.Parameter(torch.randn(self.seq_len, int(emb_size/num_heads)))
+
+        self.register_buffer(
+            "mask",
+            torch.tril(torch.ones(self.seq_len, self.seq_len))
+            .unsqueeze(0).unsqueeze(0)
+        )
+
+        self.dropout = nn.Dropout(dropout)
+        self.to_out = nn.LayerNorm(emb_size)
+
+    def forward(self, x):
+        batch_size, seq_len, _ = x.shape
+        k = self.key(x).reshape(batch_size, seq_len, self.num_heads, -1).permute(0, 2, 3, 1)
+        v = self.value(x).reshape(batch_size, seq_len, self.num_heads, -1).transpose(1, 2)
+        q = self.query(x).reshape(batch_size, seq_len, self.num_heads, -1).transpose(1, 2)
+        # k,v,q shape = (batch_size, num_heads, seq_len, d_head)
+
+        QEr = torch.matmul(q, self.Er.transpose(0, 1))
+        Srel = self.skew(QEr)
+        # Srel.shape = (batch_size, self.num_heads, seq_len, seq_len)
+
+        attn = torch.matmul(q, k)
+        # attn shape (seq_len, seq_len)
+        attn = (attn + Srel) * self.scale
+
+        attn = nn.functional.softmax(attn, dim=-1)
+        out = torch.matmul(attn, v)
+        # out.shape = (batch_size, num_heads, seq_len, d_head)
+        out = out.transpose(1, 2)
+        # out.shape == (batch_size, seq_len, num_heads, d_head)
+        out = out.reshape(batch_size, seq_len, -1)
+        # out.shape == (batch_size, seq_len, d_model)
+        out = self.to_out(out)
+        return out
+
+    def skew(self, QEr):
+        # QEr.shape = (batch_size, num_heads, seq_len, seq_len)
+        padded = nn.functional.pad(QEr, (1, 0))
+        # padded.shape = (batch_size, num_heads, seq_len, 1 + seq_len)
+        batch_size, num_heads, num_rows, num_cols = padded.shape
+        reshaped = padded.reshape(batch_size, num_heads, num_cols, num_rows)
+        # reshaped.size = (batch_size, num_heads, 1 + seq_len, seq_len)
+        Srel = reshaped[:, :, 1:, :]
+        # Srel.shape = (batch_size, num_heads, seq_len, seq_len)
+        return Srel
+
+class tAPE(nn.Module):  # Equation 13 page 11
+    def __init__(self, d_model, dropout=0.1, max_len=1024, scale_factor=1.0):
+        super().__init__()
+        self.dropout = nn.Dropout(p=dropout)
+        pe = torch.zeros(max_len, d_model)  # positional encoding
+        position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)
+        div_term = torch.exp(torch.arange(0, d_model, 2).float() * (-math.log(10000.0) / d_model))
+        pe[:, 0::2] = torch.sin((position * div_term) * (d_model / max_len))
+        pe[:, 1::2] = torch.cos((position * div_term) * (d_model / max_len))
+        pe = scale_factor * pe.unsqueeze(0)
+        self.register_buffer('pe', pe)  # this stores the variable in the state_dict (used for non-trainable variables)
+
+    def forward(self, x):
+        # x = x + self.pe
+        x = x + torch.autograd.Variable(self.pe[:, :x.size(1)], requires_grad=False)
+        return self.dropout(x)
+
+
 class PositionalEncoding(nn.Module):
     def __init__(self, d_model, dropout, seq_len):
         """
@@ -204,11 +354,12 @@ class TransformerEncoder(nn.Module):
         """
         super().__init__()
         self.norm1 = norm_layer(dim)
-        self.attn = SelfAttention(dim=dim, num_heads=num_heads, qkv_bias=qkv_bias, attn_drop=attn_drop,proj_drop=drop)
-        # self.attn = Attention_Rel_Vec(emb_size=dim, num_heads=num_heads, seq_len=44, dropout=attn_drop)
+        # self.attn = SelfAttention(dim=dim, num_heads=num_heads, qkv_bias=qkv_bias, attn_drop=attn_drop, proj_drop=drop)
+        # self.attn = Attention_Rel_Scl(emb_size= dim, num_heads= num_heads, seq_len= 44,dropout= attn_drop)
+        self.attn = Attention_Rel_Vec(emb_size= dim, num_heads= num_heads, seq_len= 44,dropout= attn_drop)
         self.norm2 = norm_layer(dim)
         mlp_hidden_dim = int(dim * mlp_ratio)
-        self.feedforward = FeedForward(in_features=dim, hidden_features=mlp_hidden_dim, act_layer=act_layer,drop=drop)
+        self.feedforward = FeedForward(in_features=dim, hidden_features=mlp_hidden_dim, act_layer=act_layer, drop=drop)
 
     def forward(self, x):
         x = self.norm1(x + self.attn(x))
@@ -273,63 +424,6 @@ class SelfAttention(nn.Module):
         x = self.proj_drop(x)
         return x
 
-class Attention_Rel_Vec(nn.Module):
-    def __init__(self, emb_size, num_heads, seq_len, dropout):
-        super().__init__()
-        self.seq_len = seq_len
-        self.num_heads = num_heads
-        self.scale = emb_size ** -0.5
-        # self.to_qkv = nn.Linear(inp, inner_dim * 3, bias=False)
-        self.key = nn.Linear(emb_size, emb_size, bias=False)
-        self.value = nn.Linear(emb_size, emb_size, bias=False)
-        self.query = nn.Linear(emb_size, emb_size, bias=False)
-
-        self.Er = nn.Parameter(torch.randn(self.seq_len, int(emb_size/num_heads)))
-
-        self.register_buffer(
-            "mask",
-            torch.tril(torch.ones(self.seq_len, self.seq_len))
-            .unsqueeze(0).unsqueeze(0)
-        )
-
-        self.dropout = nn.Dropout(dropout)
-        self.to_out = nn.LayerNorm(emb_size)
-
-    def forward(self, x):
-        batch_size, seq_len, _ = x.shape
-        k = self.key(x).reshape(batch_size, seq_len, self.num_heads, -1).permute(0, 2, 3, 1)
-        v = self.value(x).reshape(batch_size, seq_len, self.num_heads, -1).transpose(1, 2)
-        q = self.query(x).reshape(batch_size, seq_len, self.num_heads, -1).transpose(1, 2)
-        # k,v,q shape = (batch_size, num_heads, seq_len, d_head)
-
-        QEr = torch.matmul(q, self.Er.transpose(0, 1))
-        Srel = self.skew(QEr)
-        # Srel.shape = (batch_size, self.num_heads, seq_len, seq_len)
-
-        attn = torch.matmul(q, k)
-        # attn shape (seq_len, seq_len)
-        attn = (attn + Srel) * self.scale
-
-        attn = nn.functional.softmax(attn, dim=-1)
-        out = torch.matmul(attn, v)
-        # out.shape = (batch_size, num_heads, seq_len, d_head)
-        out = out.transpose(1, 2)
-        # out.shape == (batch_size, seq_len, num_heads, d_head)
-        out = out.reshape(batch_size, seq_len, -1)
-        # out.shape == (batch_size, seq_len, d_model)
-        out = self.to_out(out)
-        return out
-
-    def skew(self, QEr):
-        # QEr.shape = (batch_size, num_heads, seq_len, seq_len)
-        padded = nn.functional.pad(QEr, (1, 0))
-        # padded.shape = (batch_size, num_heads, seq_len, 1 + seq_len)
-        batch_size, num_heads, num_rows, num_cols = padded.shape
-        reshaped = padded.reshape(batch_size, num_heads, num_cols, num_rows)
-        # reshaped.size = (batch_size, num_heads, 1 + seq_len, seq_len)
-        Srel = reshaped[:, :, 1:, :]
-        # Srel.shape = (batch_size, num_heads, seq_len, seq_len)
-        return Srel
 
 class FeedForward(nn.Module):
     def __init__(self, in_features, hidden_features=None, out_features=None, act_layer=nn.GELU, drop=0.):
@@ -394,7 +488,7 @@ class Decoder(nn.Module):
 
 # Transformer结构
 class Transformer(nn.Module):
-    def __init__(self, in_channels=1, out_channels=1, feature_num=64, res_num=4, encoder_num=4, use_pe=True,
+    def __init__(self, in_channels=1, out_channels=1, feature_num=64, res_num=4, encoder_num=4, use_pe=False,
                  dim=64, seq_len=160, num_heads=4, mlp_ratio=4., qkv_bias=False, drop=0., attn_drop=0.,
                  position_drop=0.,
                  act_layer=nn.GELU, norm_layer=nn.LayerNorm
@@ -412,6 +506,9 @@ class Transformer(nn.Module):
         super(Transformer, self).__init__()
         self.feature_embedding = Input_Embedding(in_channels=in_channels, feature_num=feature_num, res_num=res_num)
         self.position_embedding = PositionalEncoding(d_model=dim, dropout=position_drop, seq_len=seq_len)
+        self.tAPE_position_embedding = tAPE(d_model=dim, dropout=position_drop, max_len=seq_len)
+        self.learnable_position_embedding = LearnablePositionalEncoding(d_model=dim, dropout=position_drop,
+                                                                        max_len=seq_len)
         self.use_pe = use_pe
         self.transformer_encdoer = TransformerBlock(block_num=res_num, dim=dim, num_heads=num_heads,
                                                     mlp_ratio=mlp_ratio, qkv_bias=qkv_bias, drop=drop,
@@ -419,20 +516,38 @@ class Transformer(nn.Module):
                                                     act_layer=act_layer, norm_layer=norm_layer)
         self.decoder = Decoder(out_channels=out_channels, feature_num=feature_num, res_num=res_num)
 
+        decoder_layer = torch.nn.TransformerDecoderLayer(d_model=dim, nhead=4, dropout=drop,
+                                                         dim_feedforward=2 * dim)
+        self.transformer_decoder = torch.nn.TransformerDecoder(decoder_layer, num_layers=4)
+        self.linear = torch.nn.Linear(dim, 1)
+
+    def decode_out(self, tgt, memory):
+        # 掩码
+        # tgt_mask = transformer_generate_tgt_mask(out_sequence_len, tgt.device)
+        # 送到解码器模型中
+        out = self.transformer_decoder(tgt=tgt, memory=memory, tgt_mask=None)
+        out = self.linear(out)
+        return out
+
     def forward(self, x):
         x = x.permute(0, 2, 1)
         x = self.feature_embedding(x)
         # [B,feature_num,L]--> [B,L,feature_num]
         x = x.transpose(-2, -1)
         if self.use_pe:
-            x = self.position_embedding(x)
+            # x = self.position_embedding(x)
+            # x = self.tAPE_position_embedding(x)
+            x = self.learnable_position_embedding(x)
+        tgt_in = x
         # [B, L, feature_num] --> [B, L, feature_num]
         x = self.transformer_encdoer(x)
+        out = self.decode_out(tgt=tgt_in, memory=x)
         # [B,  L, feature_num] --> [B, feature_num,L]
-        x = x.transpose(-2, -1)
+        out = out.transpose(-2, -1)
         # [[B, feature_num,L] --> [B,out_channels,L]
-        x = self.decoder(x)
-        return x
+        # x = self.decoder(x)
+
+        return out
 
 
 model = Transformer(in_channels=6, out_channels=1, feature_num=64).to(device)
@@ -488,7 +603,7 @@ if train_model:
             best_test_loss = val_epoch_loss
             best_model = model
             print("best_test_loss ---------------------------", best_test_loss)
-            torch.save(best_model.state_dict(), './pth/best_Transformer_trainModel10.pth')
+            torch.save(best_model.state_dict(), './pth/best_Transformer_trainModel12.pth')
 
     # 加载上一次的loss
     # train_loss = np.load('modelloss/loss.npz')['y1'].reshape(-1, 1)
@@ -513,7 +628,7 @@ if train_model:
 
 # 加载模型预测
 model = Transformer(in_channels=6, out_channels=1, feature_num=64).to(device)
-model.load_state_dict(torch.load('./pth/best_Transformer_trainModel10.pth'))
+model.load_state_dict(torch.load('./pth/best_Transformer_trainModel12.pth'))
 model.to(device)
 model.eval()
 # 在对模型进行评估时，应该配合使用wit torch.nograd() 与 model.eval()
@@ -533,7 +648,6 @@ with torch.no_grad():
         targets = list(targets.cpu().numpy().reshape([1, -1])[0])
         y_pred.extend(outputs)
         y_true.extend(targets)
-
 
 # 画折线图
 print("y_pred", y_pred)
