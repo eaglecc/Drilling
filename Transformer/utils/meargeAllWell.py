@@ -23,12 +23,18 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # 导入数据
 data1 = pd.read_csv('../data/Well1_EPOR0_1.csv')
+data1['WellNum'] = 0
 data2 = pd.read_csv('../data/Well2_EPOR0_1.csv')
+data2['WellNum'] = 1
 data3 = pd.read_csv('../data/Well3_EPOR0_1.csv')
+data3['WellNum'] = 2
 data4 = pd.read_csv('../data/Well4_EPOR0_1.csv')
+data4['WellNum'] = 3
 data5 = pd.read_csv('../data/Well5_EPOR0_1.csv')
+data5['WellNum'] = 4
 data6 = pd.read_csv('../data/Well6_EPOR0_1.csv')
-data_x = data1[['DEPTH','GR', 'NPHI','DENSITY','PEF', 'VSHALE', 'DPHI', 'EPOR0','LITH']].values
+data6['WellNum'] = 5
+# data_x = data1[['DEPTH','GR', 'NPHI','DENSITY','PEF', 'VSHALE', 'DPHI', 'EPOR0','LITH','WellNum']].values
 
 Merge1 = pd.concat([data1,data2,data3,data4,data5,data6])
 
