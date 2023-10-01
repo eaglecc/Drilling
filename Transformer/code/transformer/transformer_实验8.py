@@ -370,7 +370,7 @@ def claculate_flop_param():
     flops_small, params_small = profile(net_Small, inputs=(data,))
     flops_base, params_base = profile(net_Base, inputs=(data,))
     flops_large, params_large = profile(net_Large, inputs=(data,))
-    with open("./modelloss/params_flops.txt", "w") as f:
+    with open("../modelloss/params_flops.txt", "w") as f:
         f.write("MWLT_Small: params={:.3f}M, flops={:.3f}G\n".format(params_small / 1000 ** 2, flops_small / 1000 ** 3))
         f.write("MWLT_Base: params={:.3f}M, flops={:.3f}G\n".format(params_base / 1000 ** 2, flops_base / 1000 ** 3))
         f.write("MWLT_Large: params={:.3f}M, flops={:.3f}G".format(params_large / 1000 ** 2, flops_large / 1000 ** 3))

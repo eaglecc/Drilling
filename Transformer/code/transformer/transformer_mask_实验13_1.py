@@ -1,7 +1,7 @@
 """
 __author__ = 'Cheng Yuchao'
-__project__: 实验14：用单个井的数据集做集成学习实验   此部分仅预测不训练
-__time__:  2023/09/21
+__project__: 实验13：集成学习实验：做3个岩性模型，分别调用
+__time__:  2023/09/20
 __email__:"2477721334@qq.com"
 """
 import numpy as np
@@ -22,10 +22,43 @@ plt.rcParams['axes.unicode_minus'] = False  # 用来正常显示负号
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # 导入数据
-data = pd.read_csv('../data/Well4_EPOR0_1.csv')
+data = pd.read_csv('../../data/Well_Merge_All_Data.csv')
+# data.dropna(axis=0, how='any')  #只要行中包含任何一个缺失值，就删除整行。
 data = data.fillna(0)  # 将数据中的所有缺失值替换为0
-data_x = data[['DENSITY', 'NPHI', 'VSHALE', 'DPHI', 'EPOR0', 'LITH']].values
-data_y = data['GR'].values
+data_x = data[['GR', 'NPHI', 'VSHALE', 'DPHI', 'EPOR0','WellNum', 'LITH']].values
+data_y = data['DENSITY'].values
+
+# 获取所有不同的LITH值
+unique_lith_values = np.unique(data_x[:, -1])
+# 创建一个字典，用于存储不同LITH值对应的数组
+lith_arrays = {}
+lith_targets = {}
+
+# 根据每个不同的LITH值分割数据
+for lith_value in unique_lith_values:
+    lith_condition = data_x[:, -1] == lith_value
+    lith_arrays[lith_value] = data_x[lith_condition,]
+    lith_targets[lith_value] = data_y[lith_condition,]
+
+# 根据字典大小训练各自对应的模型
+lith_1_train = lith_arrays.get(1)
+lith_2_train = lith_arrays.get(2)
+lith_3_train = lith_arrays.get(3)
+lith_1_targets = lith_targets.get(1)
+lith_2_targets = lith_targets.get(2)
+lith_3_targets = lith_targets.get(3)
+
+
+# 使用对应岩性的数据集替换原数据(手动替换3次，得到三个训练模型)
+data_x = lith_1_train
+data_y = lith_1_targets
+
+
+#  Min-Max归一化
+min_value_y = data_y.min()  # 训练时y的最小值
+max_value_y = data_y.max()  # 训练时y的最大值
+data_x = (data_x - data_x.min()) / (data_x.max() - data_x.min())
+data_y = (data_y - min_value_y) / (max_value_y - min_value_y)
 
 data_4_x = []
 data_4_y = []
@@ -33,6 +66,7 @@ data_4_y = []
 for i in range(0, len(data_y) - 44, 44):
     data_4_x.append(data_x[i:i + 44])
     data_4_y.append(data_y[i:i + 44])
+
 
 class DataSet(Data.Dataset):
     def __init__(self, data_inputs, data_targets):
@@ -46,39 +80,10 @@ class DataSet(Data.Dataset):
         return len(self.inputs)
 
 
-train_size = int(len(data_4_x) * 0.8)
-test_size = len(data_4_y) - train_size
-
-# 根据测试集中岩性种类判断选用那个模型预测
-test_lith = data_4_x[-test_size:]
-test_lith = np.concatenate(test_lith , axis= 0)
-last_column = test_lith[:,-1]
-#    使用 NumPy 统计函数计算数字 1、2、3 的出现次数
-flat_data = last_column.flatten()
-count_0 = np.count_nonzero(flat_data == 1)
-count_1 = np.count_nonzero(flat_data == 2)
-count_2 = np.count_nonzero(flat_data == 3)
-#    计算各自的占比
-total_count = len(flat_data)
-percentage_0 = (count_0 / total_count) * 100
-percentage_1 = (count_1 / total_count) * 100
-percentage_2 = (count_2 / total_count) * 100
-max_percentage = max(percentage_0, percentage_1, percentage_2)
-
-
-#  Min-Max归一化
-min_value_y = data_y.min()  # 训练时y的最小值
-max_value_y = data_y.max()  # 训练时y的最大值
-data_x = (data_x - data_x.min()) / (data_x.max() - data_x.min())
-data_y = (data_y - min_value_y) / (max_value_y - min_value_y)
-
 Batch_Size = 1
-data_4_x = []
-data_4_y = []
-for i in range(0, len(data_y) - 44, 44):
-    data_4_x.append(data_x[i:i + 44])
-    data_4_y.append(data_y[i:i + 44])
 DataSet = DataSet(np.array(data_4_x), list(data_4_y))
+train_size = int(len(data_4_x) * 0.9)
+test_size = len(data_4_y) - train_size
 
 # 划分训练集和测试集
 train_dataset = torch.utils.data.Subset(DataSet, list(range(train_size)))  # 训练集包含数据集的前 train_size 个数据
@@ -89,7 +94,6 @@ TestDataLoader = Data.DataLoader(test_dataset, batch_size=Batch_Size, shuffle=Fa
 
 # 掩码机制
 def transformer_generate_tgt_mask(length, device):
-    # mask = torch.triu(torch.ones(length, length, device=device)) == 1
     mask = torch.tril(torch.ones(length, length, device=device)) == 1
     mask = (
         mask.float()
@@ -318,6 +322,7 @@ class tAPE(nn.Module):  # Equation 13 page 11
         x = x + torch.autograd.Variable(self.pe[:, :x.size(1)], requires_grad=False)
         return self.dropout(x)
 
+
 class PositionalEncoding(nn.Module):
     def __init__(self, d_model, dropout, seq_len):
         """
@@ -350,6 +355,7 @@ class PositionalEncoding(nn.Module):
                                         requires_grad=False)
         return self.dropout(x)
 
+
 class TransformerEncoder(nn.Module):
     def __init__(self, dim, num_heads, mlp_ratio=4., qkv_bias=False, drop=0., attn_drop=0.,
                  act_layer=nn.GELU, norm_layer=nn.LayerNorm):
@@ -379,6 +385,7 @@ class TransformerEncoder(nn.Module):
         x = self.norm2(x + self.feedforward(x))
         return x
 
+
 class TransformerBlock(nn.Module):
     def __init__(self, block_num, dim, num_heads, mlp_ratio=4., qkv_bias=False, drop=0., attn_drop=0.,
                  act_layer=nn.GELU, norm_layer=nn.LayerNorm):
@@ -392,6 +399,7 @@ class TransformerBlock(nn.Module):
         for model in self.block:
             x = model(x)
         return x
+
 
 class SelfAttention(nn.Module):
     def __init__(self, dim, num_heads=8, qkv_bias=False, attn_drop=0., proj_drop=0.):
@@ -435,6 +443,7 @@ class SelfAttention(nn.Module):
         x = self.proj_drop(x)
         return x
 
+
 class FeedForward(nn.Module):
     def __init__(self, in_features, hidden_features=None, out_features=None, act_layer=nn.GELU, drop=0.):
         """
@@ -462,6 +471,7 @@ class FeedForward(nn.Module):
         x = self.fc2(x)
         x = self.drop2(x)
         return x
+
 
 class Decoder(nn.Module):
     def __init__(self, res_num=4, out_channels=1, feature_num=64):
@@ -493,6 +503,7 @@ class Decoder(nn.Module):
             x = model(x)
         x = self.out_layer(x)
         return x
+
 
 # Transformer结构
 class Transformer(nn.Module):
@@ -558,20 +569,89 @@ class Transformer(nn.Module):
         return out
 
 
-# 加载模型预测
-model = Transformer(in_channels=6, out_channels=1, feature_num=64).to(device)
-if max_percentage == percentage_0:
-    print("岩性1占比最大：", max_percentage)
-    model.load_state_dict(torch.load('./pth/SingleTransformer_trainModel_LITH1.pth'))
-elif max_percentage == percentage_1:
-    print("岩性2占比最大：", max_percentage)
-    model.load_state_dict(torch.load('./pth/SingleTransformer_trainModel_LITH2.pth'))
-else:
-    model.load_state_dict(torch.load('./pth/SingleTransformer_trainModel_LITH3.pth'))
-    print("岩性3占比最大：", max_percentage)
+model = Transformer(in_channels=7, out_channels=1, feature_num=64).to(device)
 
+
+def test():
+    with torch.no_grad():
+        val_epoch_loss = []
+        for index, (inputs, targets) in enumerate(TrainDataLoader):
+            inputs = torch.tensor(inputs).to(device)
+            targets = torch.tensor(targets).to(device)
+            inputs = inputs.float()
+            targets = targets.float()
+            outputs = model(inputs)
+            loss = criterion(outputs.float(), targets.float())
+            val_epoch_loss.append(loss.item())
+    return np.mean(val_epoch_loss)
+
+
+epochs = 30
+optimizer = torch.optim.Adam(model.parameters(), lr=0.0001)
+criterion = torch.nn.MSELoss().to(device)
+
+# 训练模型
+train_model = True
+if train_model:
+    val_loss = []
+    train_loss = []
+    best_test_loss = 10000000  # 用于跟踪最佳验证损失，初始值设置为一个较大的数。
+    for epoch in tqdm(range(epochs)):
+        train_epoch_loss = []
+        for index, (inputs, targets) in enumerate(TrainDataLoader):
+            inputs = torch.tensor(inputs).to(device)
+            targets = torch.tensor(targets).to(device)
+            inputs = inputs.float()
+            targets = targets.float()
+
+            outputs = model(inputs)
+
+            loss = criterion(outputs.float(), targets.float())
+            # 反向传播
+            optimizer.zero_grad()  # 清零梯度
+            loss.backward()  # 计算梯度
+            optimizer.step()  # 更新模型参数
+            train_epoch_loss.append(loss.item())
+        train_loss.append(np.mean(train_epoch_loss))
+        val_epoch_loss = test()
+        val_loss.append(val_epoch_loss)
+        # print("epoch:", epoch, "train_epoch_loss", train_epoch_loss, "val_epoch_loss:", val_epoch_loss)
+        # np.savez('modelloss/loss.npz', y1=train_loss, y2=val_loss)
+        # 保存下来最好的模型
+        if val_epoch_loss < best_test_loss:
+            best_test_loss = val_epoch_loss
+            best_model = model
+            print("best_test_loss ---------------------------", best_test_loss)
+            torch.save(best_model.state_dict(), './pth/best_Transformer_trainModel_LITH1.pth')
+
+    # 加载上一次的loss
+    # train_loss = np.load('modelloss/loss.npz')['y1'].reshape(-1, 1)
+    # val_loss = np.load('modelloss/loss.npz')['y2'].reshape(-1, 1)
+    # 画loss图
+    fig = plt.figure(facecolor='white', figsize=(10, 7))
+    plt.xlabel('X')
+    plt.ylabel('Y')
+    plt.xlim(xmax=len(val_loss), xmin=0)
+    plt.ylim(ymax=max(max(train_loss), max(val_loss)), ymin=0)
+    # 画两条（0-9）的坐标轴并设置轴标签x ，y
+    x1 = [i for i in range(0, len(train_loss), 1)]  # 随机产生300个平均值为2，方差为1.2的浮点数，即第一簇点的x轴坐标
+    y1 = val_loss
+    x2 = [i for i in range(0, len(train_loss), 1)]
+    y2 = train_loss
+    area = np.pi * 5 ** 1
+    # 画散点图
+    plt.scatter(x1, y1, s=area, c='black', alpha=0.4, label='val_loss')
+    plt.scatter(x2, y2, s=area, c='red', alpha=0.4, label='train_loss')
+    plt.legend()
+    plt.show()
+
+# 加载模型预测
+model = Transformer(in_channels=7, out_channels=1, feature_num=64).to(device)
+model.load_state_dict(torch.load('./pth/best_Transformer_trainModel_LITH1.pth'))
 model.to(device)
 model.eval()
+# 在对模型进行评估时，应该配合使用wit torch.nograd() 与 model.eval()
+
 # 开始预测
 y_pred = []
 y_true = []

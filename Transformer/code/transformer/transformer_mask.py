@@ -1,7 +1,7 @@
 """
 __author__ = 'Cheng Yuchao'
-__project__: 实验7：添加CNN 模块提取特征
-__time__:  2023/09/16
+__project__: 实验5-2: 根据预测集所占岩性的种类判断用那个模型
+__time__:  2023/09/11
 __email__:"2477721334@qq.com"
 """
 import numpy as np
@@ -22,31 +22,28 @@ plt.rcParams['axes.unicode_minus'] = False  # 用来正常显示负号
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # 导入数据
-data = pd.read_csv('../data/Well4_EPOR0_1.csv')
+data = pd.read_csv('../../data/Well4_EPOR0_1.csv')
 # data.dropna(axis=0, how='any')  #只要行中包含任何一个缺失值，就删除整行。
 data = data.fillna(0)  # 将数据中的所有缺失值替换为0
-data_x = data[['DENSITY', 'NPHI', 'VSHALE', 'DPHI', 'EPOR0', 'LITH']].values
-data_y = data['GR'].values
+data_x = data[['GR', 'NPHI', 'VSHALE', 'DPHI', 'EPOR0', 'LITH']].values
+data_y = data['DENSITY'].values
 
-# Z-Score归一化 z = (x - mean) / std
-data_x = (data_x - data_x.mean()) / data_x.std()
-data_y = (data_y - data_y.mean()) / data_y.std()
+# 获取所有不同的LITH值
+unique_lith_values = np.unique(data_x[:, -1])
+# 创建一个字典，用于存储不同LITH值对应的数组
+lith_arrays = {}
+lith_targets = {}
 
-#  Min-Max归一化
-# min_value_y = data_y.min()  # 训练时y的最小值
-# max_value_y = data_y.max()  # 训练时y的最大值
-# data_x = (data_x - data_x.min()) / (data_x.max() - data_x.min())
-# data_y = (data_y - min_value_y) / (max_value_y - min_value_y)
 
 # 四个数据划分为一组，用前三个数据预测后一个
-data_4_x = []
-data_4_y = []
+data_5_x = []
+data_5_y = []
 
-for i in range(0, len(data_y) - 25, 1):
-    data_4_x.append(data_x[i:i + 24])
-    data_4_y.append(data_y[i + 25])
-    # data_4_x.append(data_x[[i, i + 1, i + 3, i + 4], :])
-    # data_4_y.append(data_y[i + 2])
+for i in range(0, len(data_y) - 5, 1):
+    # data_5_x.append(data_x[i:i + 3])
+    # data_5_y.append(data_y[i + 5])
+    data_5_x.append(data_x[[i, i + 1, i + 3, i + 4], :])
+    data_5_y.append(data_y[i + 2])
 
 
 class DataSet(Data.Dataset):
@@ -62,55 +59,34 @@ class DataSet(Data.Dataset):
 
 
 Batch_Size = 32
-DataSet = DataSet(np.array(data_4_x), list(data_4_y))
-train_size = int(len(data_4_x) * 0.8)
-test_size = len(data_4_y) - train_size
+DataSet = DataSet(np.array(data_5_x), list(data_5_y))
+train_size = int(len(data_5_x) * 0.8)
+test_size = len(data_5_y) - train_size
+
+
+# 根据测试集中岩性种类判断选用那个模型预测
+test_lith = data_x[-test_size:]
+last_column = test_lith[:,-1]
+#    使用 NumPy 统计函数计算数字 1、2、3 的出现次数
+flat_data = last_column.flatten()
+count_0 = np.count_nonzero(flat_data == 0)
+count_1 = np.count_nonzero(flat_data == 1)
+count_2 = np.count_nonzero(flat_data == 2)
+#    计算各自的占比
+total_count = len(flat_data)
+percentage_0 = (count_0 / total_count) * 100
+percentage_1 = (count_1 / total_count) * 100
+percentage_2 = (count_2 / total_count) * 100
+max_percentage = max(percentage_0, percentage_1, percentage_2)
+
 
 # 划分训练集和测试集
 train_dataset = torch.utils.data.Subset(DataSet, list(range(train_size)))  # 训练集包含数据集的前 train_size 个数据
-test_dataset = torch.utils.data.Subset(DataSet, list(range(train_size, len(data_4_x))))  # 测试集包含后 test_size 个数据
-# # 划分训练集和测试集，并且将其转化为DataLoader
-# train_dataset, test_dataset = torch.utils.data.random_split(DataSet, [train_size, test_size])
+test_dataset = torch.utils.data.Subset(DataSet, list(range(train_size, len(data_5_x))))  # 测试集包含后 test_size 个数据
 
 TrainDataLoader = Data.DataLoader(train_dataset, batch_size=Batch_Size, shuffle=False,
                                   drop_last=True)  # shuffle=False:不打乱顺序
 TestDataLoader = Data.DataLoader(test_dataset, batch_size=Batch_Size, shuffle=False, drop_last=True)
-
-
-# CNN层
-class ResCNN(nn.Module):
-    def __init__(self, in_channels, out_channels, kernel_size, padding, stride):
-        """
-        Args:
-            in_channels: (int)  64
-            out_channels: (int) 64
-            kernel_size: (int)  11
-            padding: (int)   5
-            stride: (int)    1
-        """
-        super().__init__()
-        self.conv = nn.Sequential(
-            # 第一个卷积层
-            nn.Conv1d(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size, padding=padding,
-                      stride=stride),
-            nn.BatchNorm1d(out_channels),
-            nn.ReLU(),
-            # 第二个卷积层
-            nn.Conv1d(in_channels=out_channels, out_channels=out_channels, kernel_size=kernel_size, padding=padding,
-                      stride=stride),
-            nn.BatchNorm1d(out_channels),
-            nn.ReLU(),
-        )
-
-    def forward(self, x):
-        """
-        Args:
-            x: [Batch,Channel,Length]
-        Returns:
-        """
-        identity = x
-        out = self.conv(x)
-        return identity + out
 
 
 # 位置编码
@@ -140,7 +116,6 @@ class PositionalEncoding(nn.Module):
         x = x + self.pe[:x.size(0), :]
         return self.dropout(x)
 
-
 # 掩码机制
 def transformer_generate_tgt_mask(length, device):
     # mask = torch.triu(torch.ones(length, length, device=device)) == 1
@@ -152,10 +127,9 @@ def transformer_generate_tgt_mask(length, device):
     )
     return mask
 
-
 # Transformer结构
 class Transformer(nn.Module):
-    def __init__(self, n_encoder_inputs, n_decoder_inputs, Sequence_length, d_model=512, dropout=0.1, num_layer=8 , rescnn_feature_num = 64):
+    def __init__(self, n_encoder_inputs, n_decoder_inputs, Sequence_length, d_model=512, dropout=0.1, num_layer=8):
         """
         初始化
         :param n_encoder_inputs: 输入数据的特征维度
@@ -168,17 +142,7 @@ class Transformer(nn.Module):
         # 调用父类的构造函数
         super(Transformer, self).__init__()
 
-        # CNN层
-        self.conv1 = nn.Sequential(
-            nn.Conv1d(in_channels=n_encoder_inputs, out_channels=rescnn_feature_num, kernel_size=11, padding=5, stride=1),
-            nn.BatchNorm1d(rescnn_feature_num),
-            nn.ReLU())
-
-        self.rescnn = nn.ModuleList(
-            [ResCNN(in_channels=rescnn_feature_num, out_channels=rescnn_feature_num, kernel_size=11, padding=5, stride=1) for i
-             in range(2)])
-
-        # 位置编码层
+        # 创建输入序列位置编码和目标序列位置编码的嵌入层
         self.input_positional_encoding = PositionalEncoding(d_model, max_len=Sequence_length)
         self.target_positional_encoding = PositionalEncoding(d_model, max_len=Sequence_length)
 
@@ -188,9 +152,9 @@ class Transformer(nn.Module):
 
         # 创建Transformer编码器层和解码器层
         encoder_layer = torch.nn.TransformerEncoderLayer(d_model=d_model, nhead=4, dropout=dropout,
-                                                         dim_feedforward=2 * d_model)
+                                                         dim_feedforward=5 * d_model)
         decoder_layer = torch.nn.TransformerDecoderLayer(d_model=d_model, nhead=4, dropout=dropout,
-                                                         dim_feedforward=2 * d_model)
+                                                         dim_feedforward=5 * d_model)
 
         # 创建Transformer编码器和解码器
         self.encoder = torch.nn.TransformerEncoder(encoder_layer, num_layers=4)
@@ -203,7 +167,6 @@ class Transformer(nn.Module):
         # 创建一个线性层用于最终的输出
         self.linear = torch.nn.Linear(d_model, 1)
         self.ziji_add_linear = torch.nn.Linear(Sequence_length, 1)
-        self.rescnn_linear_layer = nn.Linear(rescnn_feature_num, n_encoder_inputs)
 
     def encode_in(self, src):
         # 对输入进行线性投影
@@ -257,20 +220,7 @@ class Transformer(nn.Module):
                     其中 sequence_length 是解码器输入序列的长度，batch_size 是批次大小，n_decoder_inputs 是解码器输入特征的维度。
         :return:
         '''
-        # cnn
-        src = src.permute(0, 2, 1)
-        # conv1: [B,C,L]-->[B,feature_num,L]  [32,6,24] --> [32,64,24]
-        src = self.conv1(src)
-        # rescnn:[B,feature_num,L]-->[B,feature_num,L]
-        for rescnnmodel in self.rescnn:
-            src = rescnnmodel(src)
-        # 使用线性层进行变换
-        src = self.rescnn_linear_layer(src.view(-1, 64))  # 将输入展平为(32*24, 64)，然后通过线性层
-        # 转换后的输出形状为(32*24, 6)，将其重新调整为(32, 6, 24)
-        src = src.view(32, 24, 6)
-        # encoder
         src = self.encode_in(src)
-        # decoder
         out = self.decode_out(tgt=target_in, memory=src)
         # 使用全连接变成[batch,1]构成基于transformer的回归单值预测
         out = out.squeeze(2)  # shape:[16,3,1]-->[16,3]
@@ -278,85 +228,20 @@ class Transformer(nn.Module):
         return out
 
 
-model = Transformer(n_encoder_inputs=6, n_decoder_inputs=6, Sequence_length=24).to(device)
-
-
-def test():
-    with torch.no_grad():
-        val_epoch_loss = []
-        for index, (inputs, targets) in enumerate(TrainDataLoader):
-            inputs = torch.tensor(inputs).to(device)
-            targets = torch.tensor(targets).to(device)
-            inputs = inputs.float()
-            targets = targets.float()
-            outputs = model(inputs, inputs)
-            loss = criterion(outputs.float(), targets.float())
-            val_epoch_loss.append(loss.item())
-    return np.mean(val_epoch_loss)
-
-
-epochs = 100
-optimizer = torch.optim.Adam(model.parameters(), lr=0.0001)
-criterion = torch.nn.MSELoss().to(device)
-
-# 训练模型
-train_model = True
-if train_model:
-    val_loss = []
-    train_loss = []
-    best_test_loss = 10000000  # 用于跟踪最佳验证损失，初始值设置为一个较大的数。
-    for epoch in tqdm(range(epochs)):
-        train_epoch_loss = []
-        for index, (inputs, targets) in enumerate(TrainDataLoader):
-            inputs = torch.tensor(inputs).to(device)
-            targets = torch.tensor(targets).to(device)
-            inputs = inputs.float()
-            targets = targets.float()
-
-            outputs = model(inputs, inputs)
-
-            loss = criterion(outputs.float(), targets.float())
-            # 反向传播
-            optimizer.zero_grad()  # 清零梯度
-            loss.backward()  # 计算梯度
-            optimizer.step()  # 更新模型参数
-            train_epoch_loss.append(loss.item())
-        train_loss.append(np.mean(train_epoch_loss))
-        val_epoch_loss = test()
-        val_loss.append(val_epoch_loss)
-        # print("epoch:", epoch, "train_epoch_loss", train_epoch_loss, "val_epoch_loss:", val_epoch_loss)
-        # np.savez('modelloss/loss.npz', y1=train_loss, y2=val_loss)
-        # 保存下来最好的模型
-        if val_epoch_loss < best_test_loss:
-            best_test_loss = val_epoch_loss
-            best_model = model
-            print("best_test_loss ---------------------------", best_test_loss)
-            torch.save(best_model.state_dict(), 'best_Transformer_trainModel.pth')
-
-    # 加载上一次的loss
-    # train_loss = np.load('modelloss/loss.npz')['y1'].reshape(-1, 1)
-    # val_loss = np.load('modelloss/loss.npz')['y2'].reshape(-1, 1)
-    # 画loss图
-    fig = plt.figure(facecolor='white', figsize=(10, 7))
-    plt.xlabel('X')
-    plt.ylabel('Y')
-    plt.xlim(xmax=len(val_loss), xmin=0)
-    plt.ylim(ymax=max(max(train_loss), max(val_loss)), ymin=0)
-    # 画两条（0-9）的坐标轴并设置轴标签x ，y
-    x1 = [i for i in range(0, len(train_loss), 1)]  # 随机产生300个平均值为2，方差为1.2的浮点数，即第一簇点的x轴坐标
-    y1 = val_loss
-    x2 = [i for i in range(0, len(train_loss), 1)]
-    y2 = train_loss
-    area = np.pi * 5 ** 1
-    # 画散点图
-    plt.scatter(x1, y1, s=area, c='black', alpha=0.4, label='val_loss')
-    plt.scatter(x2, y2, s=area, c='red', alpha=0.4, label='train_loss')
-    plt.legend()
-    plt.show()
-
 # 加载模型预测
-model = Transformer(n_encoder_inputs=6, n_decoder_inputs=6, Sequence_length=24).to(device)
-model.load_state_dict(torch.load('best_Transformer_trainModel.pth'))
+if max_percentage == percentage_0:
+    print("岩性0占比最大：", max_percentage)
+    model = Transformer(n_encoder_inputs=6, n_decoder_inputs=6, Sequence_length=4).to(device)
+    model.load_state_dict(torch.load('Transformer_trainModel_LITH0.pth'))
+elif max_percentage == percentage_1:
+    print("岩性1占比最大：", max_percentage)
+    model = Transformer(n_encoder_inputs=6, n_decoder_inputs=6, Sequence_length=4).to(device)
+    model.load_state_dict(torch.load('Transformer_trainModel_LITH1.pth'))
+else:
+    model = Transformer(n_encoder_inputs=6, n_decoder_inputs=6, Sequence_length=4).to(device)
+    model.load_state_dict(torch.load('Transformer_trainModel_LITH2.pth'))
+    print("岩性2占比最大：", max_percentage)
+
 model.to(device)
 model.eval()
 # 在对模型进行评估时，应该配合使用wit torch.nograd() 与 model.eval()

@@ -1,7 +1,7 @@
 """
 __author__ = 'Cheng Yuchao'
-__project__: LSTM进行测井曲线预测实验
-__time__:  2023/09/28
+__project__: GRU进行测井曲线预测实验
+__time__:  2023/09/30
 __email__:"2477721334@qq.com"
 """
 
@@ -14,7 +14,6 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 
-
 warnings.filterwarnings("ignore")
 plt.rcParams['font.sans-serif'] = ['SimHei']  # 图例中显示中文
 plt.rcParams['axes.unicode_minus'] = False  # 用来正常显示负号
@@ -23,7 +22,7 @@ plt.rcParams['axes.unicode_minus'] = False  # 用来正常显示负号
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # 导入数据
-data = pd.read_csv('../data/Well1_EPOR0_1.csv')
+data = pd.read_csv('../../data/Well1_EPOR0_1.csv')
 data = data.fillna(0)  # 将数据中的所有缺失值替换为0
 data_x = data[['NPHI', 'DENSITY', 'VSHALE', 'DPHI', 'EPOR0', 'LITH']]
 data_y = data['GR']
@@ -39,8 +38,8 @@ look_back = 50
 # 创建回看窗口数据
 X, y = [], []
 for i in range(len(data_x) - look_back):
-    X.append(data_x[i:i+look_back])
-    y.append(data_y[i+look_back])
+    X.append(data_x[i:i + look_back])
+    y.append(data_y[i + look_back])
 X = np.array(X)
 y = np.array(y)
 
@@ -55,20 +54,23 @@ train_features = torch.FloatTensor(train_features).to(device)
 train_target = torch.FloatTensor(train_target).view(-1, 1).to(device)
 test_features = torch.FloatTensor(test_features).to(device)
 
-# 4. 定义LSTM模型
-class LSTMModel(nn.Module):
+
+# 4. 定义GRU网络
+# Replace the LSTMModel definition with a GRUModel
+class GRUModel(nn.Module):
     def __init__(self, input_size, hidden_size, num_layers, output_size):
-        super(LSTMModel, self).__init__()
+        super(GRUModel, self).__init__()
         self.hidden_size = hidden_size
         self.num_layers = num_layers
-        self.lstm = nn.LSTM(input_size, hidden_size, num_layers, batch_first=True)
+        self.gru = nn.GRU(input_size, hidden_size, num_layers, batch_first=True)
         self.fc = nn.Linear(hidden_size, output_size)
 
     def forward(self, x):
-        out, _ = self.lstm(x) # （3050，50，6）-->（3050，50，64）
-        out = out[:, -1, :] # （3050，50，64) --> (3050，64)
-        out = self.fc(out)  # 取最后一个时间步的输出（3050，64） --> (3050 , 1)
+        out, _ = self.gru(x)  # (batch_size, seq_length, hidden_size)
+        out = out[:, -1, :]  # (batch_size, hidden_size)
+        out = self.fc(out)  # (batch_size, output_size)
         return out
+
 
 # 5. 超参数
 input_size = 6  # 特征数量
@@ -76,8 +78,8 @@ hidden_size = 64
 num_layers = 1
 output_size = 1
 
-# 6.创建LSTM模型、定义损失函数和优化器
-model = LSTMModel(input_size, hidden_size, num_layers, output_size).to(device)
+# 6. Create the GRU model
+model = GRUModel(input_size, hidden_size, num_layers, output_size).to(device)
 criterion = nn.MSELoss()
 optimizer = optim.Adam(model.parameters(), lr=0.001)
 
@@ -102,5 +104,14 @@ predicted = predicted.cpu().numpy()
 plt.figure(figsize=(12, 6))
 plt.plot(test_target, label='True')
 plt.plot(predicted, label='Predicted')
+plt.title('GRU测井预测')
 plt.legend()
 plt.show()
+
+# 10. Calculate RMSE、MAPE
+mse = np.mean((test_target - predicted) ** 2)
+rmse = np.sqrt(np.mean((test_target - predicted) ** 2))
+mape = np.mean(np.abs((test_target - predicted) / test_target)) * 100
+print("MSE", mse)  # 0.11330927434122136
+print("RMSE", rmse)  # 0.33661442978758555
+print("MAPE:", mape, "%")  # 201.10354642237232 %

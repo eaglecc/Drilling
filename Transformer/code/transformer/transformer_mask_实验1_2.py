@@ -1,7 +1,7 @@
 """
 __author__ = 'Cheng Yuchao'
-__project__: 实验6:添加归一化:Z-Score效果更好，调大滑动窗口至100
-__time__:  2023/09/16
+__project__: 实验一、二：分别设置原始掩码矩阵和不设置掩码矩阵的效果
+__time__:  2023/09/11
 __email__:"2477721334@qq.com"
 """
 import numpy as np
@@ -22,15 +22,15 @@ plt.rcParams['axes.unicode_minus'] = False  # 用来正常显示负号
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # 导入数据
-data = pd.read_csv('../data/Well4_EPOR0_1.csv')
+data = pd.read_csv('../../data/Well4_EPOR0_1.csv')
 # data.dropna(axis=0, how='any')  #只要行中包含任何一个缺失值，就删除整行。
 data = data.fillna(0)  # 将数据中的所有缺失值替换为0
-data_x = data[['DENSITY', 'NPHI', 'VSHALE', 'DPHI', 'EPOR0', 'LITH']].values
-data_y = data['GR'].values
+data_x = data[['GR', 'NPHI', 'VSHALE', 'DPHI', 'EPOR0']].values
+data_y = data['DENSITY'].values
 
 # Z-Score归一化 z = (x - mean) / std
-data_x = (data_x - data_x.mean()) / data_x.std()
-data_y = (data_y - data_y.mean()) / data_y.std()
+# data_x_normalized = (data_x - data_x.mean()) / data_x.std()
+# data_y_normalized = (data_y - data_y.mean()) / data_y.std()
 
 #  Min-Max归一化
 # min_value_y = data_y.min()  # 训练时y的最小值
@@ -42,11 +42,9 @@ data_y = (data_y - data_y.mean()) / data_y.std()
 data_4_x = []
 data_4_y = []
 
-for i in range(0, len(data_y) - 100, 1):
-    data_4_x.append(data_x[i:i + 99])
-    data_4_y.append(data_y[i + 100])
-    # data_4_x.append(data_x[[i, i + 1, i + 3, i + 4], :])
-    # data_4_y.append(data_y[i + 2])
+for i in range(0, len(data_y) - 4, 1):
+    data_4_x.append(data_x[i:i + 3])
+    data_4_y.append(data_y[i + 4])
 
 
 class DataSet(Data.Dataset):
@@ -63,7 +61,7 @@ class DataSet(Data.Dataset):
 
 Batch_Size = 32
 DataSet = DataSet(np.array(data_4_x), list(data_4_y))
-train_size = int(len(data_4_x) * 0.8)
+train_size = int(len(data_4_x) * 0.75)
 test_size = len(data_4_y) - train_size
 
 # 划分训练集和测试集
@@ -119,7 +117,7 @@ def transformer_generate_tgt_mask(length, device):
 
 # Transformer结构
 class Transformer(nn.Module):
-    def __init__(self, n_encoder_inputs, n_decoder_inputs, Sequence_length, d_model=512, dropout=0.1, num_layer=8 , rescnn_feature_num = 64):
+    def __init__(self, n_encoder_inputs, n_decoder_inputs, Sequence_length, d_model=512, dropout=0.1, num_layer=8):
         """
         初始化
         :param n_encoder_inputs: 输入数据的特征维度
@@ -132,7 +130,7 @@ class Transformer(nn.Module):
         # 调用父类的构造函数
         super(Transformer, self).__init__()
 
-        # 位置编码层
+        # 创建输入序列位置编码和目标序列位置编码的嵌入层
         self.input_positional_encoding = PositionalEncoding(d_model, max_len=Sequence_length)
         self.target_positional_encoding = PositionalEncoding(d_model, max_len=Sequence_length)
 
@@ -142,9 +140,9 @@ class Transformer(nn.Module):
 
         # 创建Transformer编码器层和解码器层
         encoder_layer = torch.nn.TransformerEncoderLayer(d_model=d_model, nhead=4, dropout=dropout,
-                                                         dim_feedforward=2 * d_model)
+                                                         dim_feedforward=4 * d_model)
         decoder_layer = torch.nn.TransformerDecoderLayer(d_model=d_model, nhead=4, dropout=dropout,
-                                                         dim_feedforward=2 * d_model)
+                                                         dim_feedforward=4 * d_model)
 
         # 创建Transformer编码器和解码器
         self.encoder = torch.nn.TransformerEncoder(encoder_layer, num_layers=4)
@@ -157,7 +155,6 @@ class Transformer(nn.Module):
         # 创建一个线性层用于最终的输出
         self.linear = torch.nn.Linear(d_model, 1)
         self.ziji_add_linear = torch.nn.Linear(Sequence_length, 1)
-        self.rescnn_linear_layer = nn.Linear(rescnn_feature_num, n_encoder_inputs)
 
     def encode_in(self, src):
         # 对输入进行线性投影
@@ -176,7 +173,7 @@ class Transformer(nn.Module):
         # 位置信息编码
         positional_encoding = self.input_positional_encoding(src_start)
         # 将位置编码添加到输入序列中，并输入编码器中
-        src = positional_encoding + pos_encoder + src_start
+        src = pos_encoder + src_start
         src = self.encoder(src) + src_start
         return src
 
@@ -194,11 +191,11 @@ class Transformer(nn.Module):
         pos_decoder = self.target_pos_embedding(pos_decoder).permute(1, 0, 2)
         # 位置信息编码
         positional_encoding = self.input_positional_encoding(tgt_start)
-        tgt = positional_encoding + pos_decoder + tgt_start
+        tgt = pos_decoder + tgt_start
         # 掩码
         tgt_mask = transformer_generate_tgt_mask(out_sequence_len, tgt.device)
         # 送到解码器模型中
-        out = self.decoder(tgt=tgt, memory=memory, tgt_mask=None) + tgt_start
+        out = self.decoder(tgt=tgt, memory=memory, tgt_mask=tgt_mask) + tgt_start
         out = out.permute(1, 0, 2)  # [batch_size , seq_len , d_model]
         out = self.linear(out)
         return out
@@ -211,9 +208,7 @@ class Transformer(nn.Module):
                     其中 sequence_length 是解码器输入序列的长度，batch_size 是批次大小，n_decoder_inputs 是解码器输入特征的维度。
         :return:
         '''
-        # encoder
         src = self.encode_in(src)
-        # decoder
         out = self.decode_out(tgt=target_in, memory=src)
         # 使用全连接变成[batch,1]构成基于transformer的回归单值预测
         out = out.squeeze(2)  # shape:[16,3,1]-->[16,3]
@@ -221,7 +216,7 @@ class Transformer(nn.Module):
         return out
 
 
-model = Transformer(n_encoder_inputs=6, n_decoder_inputs=6, Sequence_length=99).to(device)
+model = Transformer(n_encoder_inputs=5, n_decoder_inputs=5, Sequence_length=3).to(device)
 
 
 def test():
@@ -232,14 +227,16 @@ def test():
             targets = torch.tensor(targets).to(device)
             inputs = inputs.float()
             targets = targets.float()
+            tgt_in = torch.rand((Batch_Size, 3, 5))
+            # tgt_in = inputs  # Use inputs as targets during testing
             outputs = model(inputs, inputs)
             loss = criterion(outputs.float(), targets.float())
             val_epoch_loss.append(loss.item())
     return np.mean(val_epoch_loss)
 
 
-epochs = 80
-optimizer = torch.optim.Adam(model.parameters(), lr=0.0001)
+epochs = 20
+optimizer = torch.optim.Adagrad(model.parameters(), lr=0.0001)
 criterion = torch.nn.MSELoss().to(device)
 
 # 训练模型
@@ -255,6 +252,9 @@ if train_model:
             targets = torch.tensor(targets).to(device)
             inputs = inputs.float()
             targets = targets.float()
+
+            tgt_in = torch.rand((Batch_Size, 3, 5))
+            # tgt_in = inputs  # Use the same input as targets during training
 
             outputs = model(inputs, inputs)
 
@@ -274,7 +274,7 @@ if train_model:
             best_test_loss = val_epoch_loss
             best_model = model
             print("best_test_loss ---------------------------", best_test_loss)
-            torch.save(best_model.state_dict(), 'best_Transformer_trainModel6.pth')
+            torch.save(best_model.state_dict(), 'best_Transformer_trainModel.pth')
 
     # 加载上一次的loss
     # train_loss = np.load('modelloss/loss.npz')['y1'].reshape(-1, 1)
@@ -290,7 +290,7 @@ if train_model:
     y1 = val_loss
     x2 = [i for i in range(0, len(train_loss), 1)]
     y2 = train_loss
-    area = np.pi * 5 ** 1
+    area = np.pi * 4 ** 1
     # 画散点图
     plt.scatter(x1, y1, s=area, c='black', alpha=0.4, label='val_loss')
     plt.scatter(x2, y2, s=area, c='red', alpha=0.4, label='train_loss')
@@ -298,8 +298,8 @@ if train_model:
     plt.show()
 
 # 加载模型预测
-model = Transformer(n_encoder_inputs=6, n_decoder_inputs=6, Sequence_length=99).to(device)
-model.load_state_dict(torch.load('best_Transformer_trainModel6.pth'))
+model = Transformer(n_encoder_inputs=5, n_decoder_inputs=5, Sequence_length=3).to(device)
+model.load_state_dict(torch.load('best_Transformer_trainModel.pth'))
 model.to(device)
 model.eval()
 # 在对模型进行评估时，应该配合使用wit torch.nograd() 与 model.eval()
@@ -314,6 +314,8 @@ with torch.no_grad():
         targets = torch.tensor(targets).to(device)
         inputs = inputs.float()
         targets = targets.float()
+        tgt_in = torch.rand((Batch_Size, 3, 5))
+        # tgt_in = inputs  # Use the same input as targets during training
         outputs = model(inputs, inputs)
         outputs = list(outputs.cpu().numpy().reshape([1, -1])[0])
         targets = list(targets.cpu().numpy().reshape([1, -1])[0])

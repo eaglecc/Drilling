@@ -1,7 +1,7 @@
 """
 __author__ = 'Cheng Yuchao'
-__project__: 实验14：用单个井的数据集做集成学习实验
-__time__:  2023/09/21
+__project__: 实验12:修改Position Encoding部分
+__time__:  2023/09/18
 __email__:"2477721334@qq.com"
 """
 import numpy as np
@@ -22,37 +22,15 @@ plt.rcParams['axes.unicode_minus'] = False  # 用来正常显示负号
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # 导入数据
-data = pd.read_csv('../data/Well4_EPOR0_1.csv')
+data = pd.read_csv('../../data/Well4_EPOR0_1.csv')
 # data.dropna(axis=0, how='any')  #只要行中包含任何一个缺失值，就删除整行。
 data = data.fillna(0)  # 将数据中的所有缺失值替换为0
 data_x = data[['DENSITY', 'NPHI', 'VSHALE', 'DPHI', 'EPOR0', 'LITH']].values
 data_y = data['GR'].values
 
-# 获取所有不同的LITH值
-unique_lith_values = np.unique(data_x[:, -1])
-# 创建一个字典，用于存储不同LITH值对应的数组
-lith_arrays = {}
-lith_targets = {}
-
-# 根据每个不同的LITH值分割数据
-for lith_value in unique_lith_values:
-    lith_condition = data_x[:, -1] == lith_value
-    lith_arrays[lith_value] = data_x[lith_condition,]
-    lith_targets[lith_value] = data_y[lith_condition,]
-
-# 根据字典大小训练各自对应的模型
-lith_1_train = lith_arrays.get(1)
-lith_2_train = lith_arrays.get(2)
-lith_3_train = lith_arrays.get(3)
-lith_1_targets = lith_targets.get(1)
-lith_2_targets = lith_targets.get(2)
-lith_3_targets = lith_targets.get(3)
-
-
-# 使用对应岩性的数据集替换原数据(手动替换3次，得到三个训练模型)
-data_x = lith_1_train
-data_y = lith_1_targets
-
+# Z-Score归一化 z = (x - mean) / std
+# data_x = (data_x - data_x.mean()) / data_x.std()
+# data_y = (data_y - data_y.mean()) / data_y.std()
 
 #  Min-Max归一化
 min_value_y = data_y.min()  # 训练时y的最小值
@@ -60,6 +38,7 @@ max_value_y = data_y.max()  # 训练时y的最大值
 data_x = (data_x - data_x.min()) / (data_x.max() - data_x.min())
 data_y = (data_y - min_value_y) / (max_value_y - min_value_y)
 
+# 四个数据划分为一组，用前三个数据预测后一个
 data_4_x = []
 data_4_y = []
 
@@ -82,18 +61,20 @@ class DataSet(Data.Dataset):
 
 Batch_Size = 1
 DataSet = DataSet(np.array(data_4_x), list(data_4_y))
-train_size = int(len(data_4_x) * 0.9)
+train_size = int(len(data_4_x) * 0.8)
 test_size = len(data_4_y) - train_size
 
 # 划分训练集和测试集
 train_dataset = torch.utils.data.Subset(DataSet, list(range(train_size)))  # 训练集包含数据集的前 train_size 个数据
 test_dataset = torch.utils.data.Subset(DataSet, list(range(train_size, len(data_4_x))))  # 测试集包含后 test_size 个数据
-TrainDataLoader = Data.DataLoader(train_dataset, batch_size=Batch_Size, shuffle=False,drop_last=True)  # shuffle=False:不打乱顺序
+TrainDataLoader = Data.DataLoader(train_dataset, batch_size=Batch_Size, shuffle=False,
+                                  drop_last=True)  # shuffle=False:不打乱顺序
 TestDataLoader = Data.DataLoader(test_dataset, batch_size=Batch_Size, shuffle=False, drop_last=True)
 
 
 # 掩码机制
 def transformer_generate_tgt_mask(length, device):
+    # mask = torch.triu(torch.ones(length, length, device=device)) == 1
     mask = torch.tril(torch.ones(length, length, device=device)) == 1
     mask = (
         mask.float()
@@ -586,7 +567,7 @@ def test():
     return np.mean(val_epoch_loss)
 
 
-epochs = 60
+epochs = 100
 optimizer = torch.optim.Adam(model.parameters(), lr=0.0001)
 criterion = torch.nn.MSELoss().to(device)
 
@@ -622,7 +603,7 @@ if train_model:
             best_test_loss = val_epoch_loss
             best_model = model
             print("best_test_loss ---------------------------", best_test_loss)
-            torch.save(best_model.state_dict(), './pth/SingleTransformer_trainModel_LITH1.pth')
+            torch.save(best_model.state_dict(), './pth/best_Transformer_trainModel12.pth')
 
     # 加载上一次的loss
     # train_loss = np.load('modelloss/loss.npz')['y1'].reshape(-1, 1)
@@ -647,7 +628,7 @@ if train_model:
 
 # 加载模型预测
 model = Transformer(in_channels=6, out_channels=1, feature_num=64).to(device)
-model.load_state_dict(torch.load('./pth/SingleTransformer_trainModel_LITH1.pth'))
+model.load_state_dict(torch.load('./pth/best_Transformer_trainModel12.pth'))
 model.to(device)
 model.eval()
 # 在对模型进行评估时，应该配合使用wit torch.nograd() 与 model.eval()
