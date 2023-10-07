@@ -1,7 +1,7 @@
 """
 __author__ = 'Cheng Yuchao'
-__project__: LSTM进行测井曲线预测实验
-__time__:  2023/09/28
+__project__: 使用已有的模型进行盲井数据集测试： LSTM
+__time__:  2023/10/2
 __email__:"2477721334@qq.com"
 """
 
@@ -22,7 +22,7 @@ plt.rcParams['axes.unicode_minus'] = False  # 用来正常显示负号
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # 导入数据
-data = pd.read_csv('../../data/Well4_EPOR0_2.csv')
+data = pd.read_csv('../../data/Well1_EPOR0_1.csv')  # 在well1井上进行训练
 data = data.fillna(0)  # 将数据中的所有缺失值替换为0
 data_x = data[['NPHI', 'DENSITY', 'VSHALE', 'DPHI', 'EPOR0', 'LITH']]
 data_y = data['GR']
@@ -34,7 +34,7 @@ data_x = (data_x - data_x.min()) / (data_x.max() - data_x.min())
 data_y = (data_y - min_value_y) / (max_value_y - min_value_y)
 
 # 2. 定义回看窗口大小
-look_back = 50
+look_back = 100
 # 创建回看窗口数据
 X, y = [], []
 for i in range(len(data_x) - look_back):
@@ -53,6 +53,7 @@ test_target = y[train_size:]
 train_features = torch.FloatTensor(train_features).to(device)
 train_target = torch.FloatTensor(train_target).view(-1, 1).to(device)
 test_features = torch.FloatTensor(test_features).to(device)
+
 
 # 定义批次大小
 batch_size = 8  # 可以根据需求调整
@@ -130,8 +131,7 @@ plt.plot(predicted, label='Predicted')
 plt.title('LSTM测井预测')
 plt.legend()
 # 使用savefig保存图表为文件
-# plt.savefig(('../../result/lstm/epoch_{}.png').format(num_epochs))  # 保存为PNG格式的文件
-# print("图片已经存储至：../../result/lstm/")
+plt.savefig(('../../result/lstm/epoch_{}.png').format(num_epochs))  # 保存为PNG格式的文件
 plt.show()
 
 # 10. Calculate RMSE、MAPE
@@ -141,3 +141,39 @@ mape = np.mean(np.abs((test_target - predicted) / test_target))
 print("MSE", mse)  # 0.09753167668446872
 print("RMSE", rmse) # 0.3123006190907548
 print("MAPE:", mape) # 180.2477638456806 %
+
+
+# 11. 盲井数据集
+data = pd.read_csv('../../data/Well1_EPOR0_1.csv')  # 在well1井上进行训练
+data = data.fillna(0)  # 将数据中的所有缺失值替换为0
+data_x = data[['NPHI', 'DENSITY', 'VSHALE', 'DPHI', 'EPOR0', 'LITH']]
+data_y = data['GR']
+min_value_y = data_y.min()  # 训练时y的最小值
+max_value_y = data_y.max()  # 训练时y的最大值
+data_x = (data_x - data_x.min()) / (data_x.max() - data_x.min())
+data_y = (data_y - min_value_y) / (max_value_y - min_value_y)
+look_back = 100
+# 创建回看窗口数据
+X, y = [], []
+for i in range(len(data_x) - look_back):
+    X.append(data_x[i:i + look_back])
+    y.append(data_y[i + look_back])
+X = np.array(X)
+y = np.array(y)
+test_features = X[:]
+test_target = y[:]
+
+test_features = torch.FloatTensor(test_features).to(device)
+
+model.eval()
+with torch.no_grad():
+    predicted = model(test_features)
+predicted = predicted.cpu().numpy()
+
+# 9. 绘制真实数据和预测数据的曲线
+plt.figure(figsize=(12, 6))
+plt.plot(test_target, label='True')
+plt.plot(predicted, label='Predicted')
+plt.title('LSTM测井预测：盲井')
+plt.legend()
+plt.show()

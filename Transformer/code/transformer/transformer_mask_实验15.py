@@ -16,21 +16,17 @@ import matplotlib.pyplot as plt
 import warnings
 
 warnings.filterwarnings("ignore")
-# plt.rcParams['font.sans-serif'] = ['SimHei']  # 图例中显示中文
+plt.rcParams['font.sans-serif'] = ['SimHei']  # 图例中显示中文
 plt.rcParams['axes.unicode_minus'] = False  # 用来正常显示负号
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-# 导入数据
+# 1. 导入数据
 data = pd.read_csv('../../data/Well4_EPOR0_1.csv')
 # data.dropna(axis=0, how='any')  #只要行中包含任何一个缺失值，就删除整行。
 data = data.fillna(0)  # 将数据中的所有缺失值替换为0
 data_x = data[['DENSITY', 'NPHI', 'VSHALE', 'DPHI', 'EPOR0', 'LITH']].values
 data_y = data['GR'].values
-
-# Z-Score归一化 z = (x - mean) / std
-# data_x = (data_x - data_x.mean()) / data_x.std()
-# data_y = (data_y - data_y.mean()) / data_y.std()
 
 #  Min-Max归一化
 min_value_y = data_y.min()  # 训练时y的最小值
@@ -40,37 +36,31 @@ data_y = (data_y - min_value_y) / (max_value_y - min_value_y)
 
 # 2. 定义回看窗口大小
 look_back = 50
-data_4_x = []
-data_4_y = []
+# 创建回看窗口数据
+X, y = [], []
 for i in range(len(data_x) - look_back):
-    data_4_x.append(data_x[i:i + look_back])
-    data_4_y.append(data_y[i + look_back])
-data_4_x = np.array(data_4_x)
-data_4_y = np.array(data_4_y)
+    X.append(data_x[i:i + look_back])
+    y.append(data_y[i + look_back])
+X = np.array(X)
+y = np.array(y)
 
+# 3. 划分数据集为训练集和测试集
+train_size = int(0.8 * len(X))
+train_features = X[:train_size]
+train_target = y[:train_size]
+test_features = X[train_size:]
+test_target = y[train_size:]
 
-class DataSet(Data.Dataset):
-    def __init__(self, data_inputs, data_targets):
-        self.inputs = torch.FloatTensor(data_inputs)
-        self.label = torch.FloatTensor(data_targets)
+train_features = torch.FloatTensor(train_features).to(device)
+train_target = torch.FloatTensor(train_target).view(-1, 1).to(device)
+test_features = torch.FloatTensor(test_features).to(device)
 
-    def __getitem__(self, index):
-        return self.inputs[index], self.label[index]
+# 定义批次大小
+batch_size = 8  # 可以根据需求调整
 
-    def __len__(self):
-        return len(self.inputs)
-
-
-Batch_Size = 1
-DataSet = DataSet(np.array(data_4_x), list(data_4_y))
-train_size = int(len(data_4_x) * 0.8)
-test_size = len(data_4_y) - train_size
-
-# 划分训练集和测试集
-train_dataset = torch.utils.data.Subset(DataSet, list(range(train_size)))  # 训练集包含数据集的前 train_size 个数据
-test_dataset = torch.utils.data.Subset(DataSet, list(range(train_size, len(data_4_x))))  # 测试集包含后 test_size 个数据
-TrainDataLoader = Data.DataLoader(train_dataset, batch_size=Batch_Size, shuffle=False,drop_last=True)  # shuffle=False:不打乱顺序
-TestDataLoader = Data.DataLoader(test_dataset, batch_size=Batch_Size, shuffle=False, drop_last=True)
+# 使用DataLoader创建数据加载器
+train_dataset = torch.utils.data.TensorDataset(train_features, train_target)
+train_loader = torch.utils.data.DataLoader(dataset=train_dataset, batch_size=batch_size, shuffle=True)
 
 
 # 掩码机制
@@ -156,154 +146,6 @@ class ResCNN(nn.Module):
         return identity + out
 
 
-class LearnablePositionalEncoding(nn.Module):
-    def __init__(self, d_model, dropout=0.1, max_len=1024):
-        super(LearnablePositionalEncoding, self).__init__()
-        self.dropout = nn.Dropout(p=dropout)
-        self.pe = nn.Parameter(torch.empty(max_len, d_model))  # 可学习的参数
-        nn.init.uniform_(self.pe, -0.02, 0.02)
-
-    def forward(self, x):
-        r"""Inputs of forward function
-        Args:
-            x: the sequence fed to the positional encoder model (required).
-        Shape:
-            x: [sequence length, batch size, embed dim]
-            output: [sequence length, batch size, embed dim]
-        """
-        # x = x + self.pe
-        x = x + self.pe[:x.size(1), :]
-        return self.dropout(x)
-
-class Attention_Rel_Scl(nn.Module):  # Equation 14 page 12
-    def __init__(self, emb_size, num_heads, seq_len, dropout):
-        super().__init__()
-        self.seq_len = seq_len
-        self.num_heads = num_heads
-
-        self.scale = emb_size ** -0.5
-        # self.to_qkv = nn.Linear(inp, inner_dim * 3, bias=False)
-        self.key = nn.Linear(emb_size, emb_size, bias=False)
-        self.value = nn.Linear(emb_size, emb_size, bias=False)
-        self.query = nn.Linear(emb_size, emb_size, bias=False)
-
-        self.relative_bias_table = nn.Parameter(torch.zeros((2 * self.seq_len - 1), num_heads))
-        coords = torch.meshgrid((torch.arange(1), torch.arange(self.seq_len)))
-        coords = torch.flatten(torch.stack(coords), 1)
-        relative_coords = coords[:, :, None] - coords[:, None, :]
-        relative_coords[1] += self.seq_len - 1
-        relative_coords = relative_coords.permute(1, 2, 0)  #c h w -> h w c
-        relative_index = relative_coords.sum(-1).flatten().unsqueeze(1)
-        self.register_buffer("relative_index", relative_index)
-
-        self.dropout = nn.Dropout(dropout)
-        self.to_out = nn.LayerNorm(emb_size)
-
-    def forward(self, x):
-        batch_size, seq_len, _ = x.shape
-        k = self.key(x).reshape(batch_size, seq_len, self.num_heads, -1).permute(0, 2, 3, 1)
-        v = self.value(x).reshape(batch_size, seq_len, self.num_heads, -1).transpose(1, 2)
-        q = self.query(x).reshape(batch_size, seq_len, self.num_heads, -1).transpose(1, 2)
-        # k,v,q shape = (batch_size, num_heads, seq_len, d_head)
-
-        attn = torch.matmul(q, k) * self.scale
-        # attn shape (seq_len, seq_len)
-        attn = nn.functional.softmax(attn, dim=-1)
-
-        # Use "gather" for more efficiency on GPUs
-        relative_bias = self.relative_bias_table.gather(0, self.relative_index.repeat(1, 8))
-        # relative_bias = rearrange(relative_bias, '(h w) c -> 1 c h w', h=1 * self.seq_len, w=1 * self.seq_len)
-        relative_bias = relative_bias.permute(1, 0).unsqueeze(0).unsqueeze(2).unsqueeze(3)
-        attn = attn + relative_bias
-
-        # distance_pd = pd.DataFrame(relative_bias[0,0,:,:].cpu().detach().numpy())
-        # distance_pd.to_csv('scalar_position_distance.csv')
-
-        out = torch.matmul(attn, v)
-        # out.shape = (batch_size, num_heads, seq_len, d_head)
-        out = out.transpose(1, 2)
-        # out.shape == (batch_size, seq_len, num_heads, d_head)
-        out = out.reshape(batch_size, seq_len, -1)
-        # out.shape == (batch_size, seq_len, d_model)
-        out = self.to_out(out)
-        return out
-
-class Attention_Rel_Vec(nn.Module):
-    def __init__(self, emb_size, num_heads, seq_len, dropout):
-        super().__init__()
-        self.seq_len = seq_len
-        self.num_heads = num_heads
-        self.scale = emb_size ** -0.5
-        # self.to_qkv = nn.Linear(inp, inner_dim * 3, bias=False)
-        self.key = nn.Linear(emb_size, emb_size, bias=False)
-        self.value = nn.Linear(emb_size, emb_size, bias=False)
-        self.query = nn.Linear(emb_size, emb_size, bias=False)
-
-        self.Er = nn.Parameter(torch.randn(self.seq_len, int(emb_size/num_heads)))
-
-        self.register_buffer(
-            "mask",
-            torch.tril(torch.ones(self.seq_len, self.seq_len))
-            .unsqueeze(0).unsqueeze(0)
-        )
-
-        self.dropout = nn.Dropout(dropout)
-        self.to_out = nn.LayerNorm(emb_size)
-
-    def forward(self, x):
-        batch_size, seq_len, _ = x.shape
-        k = self.key(x).reshape(batch_size, seq_len, self.num_heads, -1).permute(0, 2, 3, 1)
-        v = self.value(x).reshape(batch_size, seq_len, self.num_heads, -1).transpose(1, 2)
-        q = self.query(x).reshape(batch_size, seq_len, self.num_heads, -1).transpose(1, 2)
-        # k,v,q shape = (batch_size, num_heads, seq_len, d_head)
-
-        QEr = torch.matmul(q, self.Er.transpose(0, 1))
-        Srel = self.skew(QEr)
-        # Srel.shape = (batch_size, self.num_heads, seq_len, seq_len)
-
-        attn = torch.matmul(q, k)
-        # attn shape (seq_len, seq_len)
-        attn = (attn + Srel) * self.scale
-
-        attn = nn.functional.softmax(attn, dim=-1)
-        out = torch.matmul(attn, v)
-        # out.shape = (batch_size, num_heads, seq_len, d_head)
-        out = out.transpose(1, 2)
-        # out.shape == (batch_size, seq_len, num_heads, d_head)
-        out = out.reshape(batch_size, seq_len, -1)
-        # out.shape == (batch_size, seq_len, d_model)
-        out = self.to_out(out)
-        return out
-
-    def skew(self, QEr):
-        # QEr.shape = (batch_size, num_heads, seq_len, seq_len)
-        padded = nn.functional.pad(QEr, (1, 0))
-        # padded.shape = (batch_size, num_heads, seq_len, 1 + seq_len)
-        batch_size, num_heads, num_rows, num_cols = padded.shape
-        reshaped = padded.reshape(batch_size, num_heads, num_cols, num_rows)
-        # reshaped.size = (batch_size, num_heads, 1 + seq_len, seq_len)
-        Srel = reshaped[:, :, 1:, :]
-        # Srel.shape = (batch_size, num_heads, seq_len, seq_len)
-        return Srel
-
-class tAPE(nn.Module):  # Equation 13 page 11
-    def __init__(self, d_model, dropout=0.1, max_len=1024, scale_factor=1.0):
-        super().__init__()
-        self.dropout = nn.Dropout(p=dropout)
-        pe = torch.zeros(max_len, d_model)  # positional encoding
-        position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)
-        div_term = torch.exp(torch.arange(0, d_model, 2).float() * (-math.log(10000.0) / d_model))
-        pe[:, 0::2] = torch.sin((position * div_term) * (d_model / max_len))
-        pe[:, 1::2] = torch.cos((position * div_term) * (d_model / max_len))
-        pe = scale_factor * pe.unsqueeze(0)
-        self.register_buffer('pe', pe)  # this stores the variable in the state_dict (used for non-trainable variables)
-
-    def forward(self, x):
-        # x = x + self.pe
-        x = x + torch.autograd.Variable(self.pe[:, :x.size(1)], requires_grad=False)
-        return self.dropout(x)
-
-
 class PositionalEncoding(nn.Module):
     def __init__(self, d_model, dropout, seq_len):
         """
@@ -325,6 +167,7 @@ class PositionalEncoding(nn.Module):
 
     def forward(self, x):
         """
+
         Args:
             x:[B,L,C] batch_size,sequence len,channel number
 
@@ -353,9 +196,8 @@ class TransformerEncoder(nn.Module):
         """
         super().__init__()
         self.norm1 = norm_layer(dim)
-        # self.attn = SelfAttention(dim=dim, num_heads=num_heads, qkv_bias=qkv_bias, attn_drop=attn_drop, proj_drop=drop)
-        # self.attn = Attention_Rel_Scl(emb_size= dim, num_heads= num_heads, seq_len= 50,dropout= attn_drop)
-        self.attn = Attention_Rel_Vec(emb_size= dim, num_heads= num_heads, seq_len= 50,dropout= attn_drop)
+        self.attn = SelfAttention(dim=dim, num_heads=num_heads, qkv_bias=qkv_bias, attn_drop=attn_drop, proj_drop=drop)
+        # self.attn = Attention_Rel_Vec(emb_size=dim, num_heads=num_heads, seq_len=44, dropout=attn_drop)
         self.norm2 = norm_layer(dim)
         mlp_hidden_dim = int(dim * mlp_ratio)
         self.feedforward = FeedForward(in_features=dim, hidden_features=mlp_hidden_dim, act_layer=act_layer, drop=drop)
@@ -424,6 +266,65 @@ class SelfAttention(nn.Module):
         return x
 
 
+class Attention_Rel_Vec(nn.Module):
+    def __init__(self, emb_size, num_heads, seq_len, dropout):
+        super().__init__()
+        self.seq_len = seq_len
+        self.num_heads = num_heads
+        self.scale = emb_size ** -0.5
+        # self.to_qkv = nn.Linear(inp, inner_dim * 3, bias=False)
+        self.key = nn.Linear(emb_size, emb_size, bias=False)
+        self.value = nn.Linear(emb_size, emb_size, bias=False)
+        self.query = nn.Linear(emb_size, emb_size, bias=False)
+
+        self.Er = nn.Parameter(torch.randn(self.seq_len, int(emb_size / num_heads)))
+
+        self.register_buffer(
+            "mask",
+            torch.tril(torch.ones(self.seq_len, self.seq_len))
+            .unsqueeze(0).unsqueeze(0)
+        )
+
+        self.dropout = nn.Dropout(dropout)
+        self.to_out = nn.LayerNorm(emb_size)
+
+    def forward(self, x):
+        batch_size, seq_len, _ = x.shape
+        k = self.key(x).reshape(batch_size, seq_len, self.num_heads, -1).permute(0, 2, 3, 1)
+        v = self.value(x).reshape(batch_size, seq_len, self.num_heads, -1).transpose(1, 2)
+        q = self.query(x).reshape(batch_size, seq_len, self.num_heads, -1).transpose(1, 2)
+        # k,v,q shape = (batch_size, num_heads, seq_len, d_head)
+
+        QEr = torch.matmul(q, self.Er.transpose(0, 1))
+        Srel = self.skew(QEr)
+        # Srel.shape = (batch_size, self.num_heads, seq_len, seq_len)
+
+        attn = torch.matmul(q, k)
+        # attn shape (seq_len, seq_len)
+        attn = (attn + Srel) * self.scale
+
+        attn = nn.functional.softmax(attn, dim=-1)
+        out = torch.matmul(attn, v)
+        # out.shape = (batch_size, num_heads, seq_len, d_head)
+        out = out.transpose(1, 2)
+        # out.shape == (batch_size, seq_len, num_heads, d_head)
+        out = out.reshape(batch_size, seq_len, -1)
+        # out.shape == (batch_size, seq_len, d_model)
+        out = self.to_out(out)
+        return out
+
+    def skew(self, QEr):
+        # QEr.shape = (batch_size, num_heads, seq_len, seq_len)
+        padded = nn.functional.pad(QEr, (1, 0))
+        # padded.shape = (batch_size, num_heads, seq_len, 1 + seq_len)
+        batch_size, num_heads, num_rows, num_cols = padded.shape
+        reshaped = padded.reshape(batch_size, num_heads, num_cols, num_rows)
+        # reshaped.size = (batch_size, num_heads, 1 + seq_len, seq_len)
+        Srel = reshaped[:, :, 1:, :]
+        # Srel.shape = (batch_size, num_heads, seq_len, seq_len)
+        return Srel
+
+
 class FeedForward(nn.Module):
     def __init__(self, in_features, hidden_features=None, out_features=None, act_layer=nn.GELU, drop=0.):
         """
@@ -482,12 +383,13 @@ class Decoder(nn.Module):
         for model in self.rescnn:
             x = model(x)
         x = self.out_layer(x)
+        x = x[:, :, -1] # 取最后一个时间步的输出
         return x
 
 
 # Transformer结构
 class Transformer(nn.Module):
-    def __init__(self, in_channels=1, out_channels=1, feature_num=64, res_num=4, encoder_num=4, use_pe=False,
+    def __init__(self, in_channels=1, out_channels=1, feature_num=64, res_num=4, encoder_num=4, use_pe=True,
                  dim=64, seq_len=160, num_heads=4, mlp_ratio=4., qkv_bias=False, drop=0., attn_drop=0.,
                  position_drop=0.,
                  act_layer=nn.GELU, norm_layer=nn.LayerNorm
@@ -505,9 +407,6 @@ class Transformer(nn.Module):
         super(Transformer, self).__init__()
         self.feature_embedding = Input_Embedding(in_channels=in_channels, feature_num=feature_num, res_num=res_num)
         self.position_embedding = PositionalEncoding(d_model=dim, dropout=position_drop, seq_len=seq_len)
-        self.tAPE_position_embedding = tAPE(d_model=dim, dropout=position_drop, max_len=seq_len)
-        self.learnable_position_embedding = LearnablePositionalEncoding(d_model=dim, dropout=position_drop,
-                                                                        max_len=seq_len)
         self.use_pe = use_pe
         self.transformer_encdoer = TransformerBlock(block_num=res_num, dim=dim, num_heads=num_heads,
                                                     mlp_ratio=mlp_ratio, qkv_bias=qkv_bias, drop=drop,
@@ -515,39 +414,20 @@ class Transformer(nn.Module):
                                                     act_layer=act_layer, norm_layer=norm_layer)
         self.decoder = Decoder(out_channels=out_channels, feature_num=feature_num, res_num=res_num)
 
-        decoder_layer = torch.nn.TransformerDecoderLayer(d_model=dim, nhead=4, dropout=drop,
-                                                         dim_feedforward=2 * dim)
-        self.transformer_decoder = torch.nn.TransformerDecoder(decoder_layer, num_layers=4)
-        self.linear = torch.nn.Linear(dim, 1)
-
-    def decode_out(self, tgt, memory):
-        # 掩码
-        # tgt_mask = transformer_generate_tgt_mask(out_sequence_len, tgt.device)
-        # 送到解码器模型中
-        out = self.transformer_decoder(tgt=tgt, memory=memory, tgt_mask=None)
-        out = out[:, -1, :]  # 取最后一个时间步的输出（1，50，64) --> (1，64)
-        out = self.linear(out)
-        return out
-
     def forward(self, x):
         x = x.permute(0, 2, 1)
         x = self.feature_embedding(x)
         # [B,feature_num,L]--> [B,L,feature_num]
         x = x.transpose(-2, -1)
         if self.use_pe:
-            # x = self.position_embedding(x)
-            # x = self.tAPE_position_embedding(x)
-            x = self.learnable_position_embedding(x)
-        tgt_in = x
+            x = self.position_embedding(x)
         # [B, L, feature_num] --> [B, L, feature_num]
         x = self.transformer_encdoer(x)
-        out = self.decode_out(tgt=tgt_in, memory=x)
         # [B,  L, feature_num] --> [B, feature_num,L]
-        out = out.transpose(-2, -1)
+        x = x.transpose(-2, -1)
         # [[B, feature_num,L] --> [B,out_channels,L]
-        # x = self.decoder(x)
-
-        return out
+        x = self.decoder(x)
+        return x
 
 
 model = Transformer(in_channels=6, out_channels=1, feature_num=64).to(device)
@@ -556,7 +436,7 @@ model = Transformer(in_channels=6, out_channels=1, feature_num=64).to(device)
 def test():
     with torch.no_grad():
         val_epoch_loss = []
-        for index, (inputs, targets) in enumerate(TrainDataLoader):
+        for inputs, targets in train_loader:
             inputs = torch.tensor(inputs).to(device)
             targets = torch.tensor(targets).to(device)
             inputs = inputs.float()
@@ -567,7 +447,7 @@ def test():
     return np.mean(val_epoch_loss)
 
 
-epochs = 50
+epochs = 200
 optimizer = torch.optim.Adam(model.parameters(), lr=0.0001)
 criterion = torch.nn.MSELoss().to(device)
 
@@ -579,7 +459,7 @@ if train_model:
     best_test_loss = 10000000  # 用于跟踪最佳验证损失，初始值设置为一个较大的数。
     for epoch in tqdm(range(epochs)):
         train_epoch_loss = []
-        for index, (inputs, targets) in enumerate(TrainDataLoader):
+        for inputs, targets in train_loader:
             inputs = torch.tensor(inputs).to(device)
             targets = torch.tensor(targets).to(device)
             inputs = inputs.float()
@@ -634,37 +514,50 @@ model.eval()
 # 在对模型进行评估时，应该配合使用wit torch.nograd() 与 model.eval()
 
 # 开始预测
-y_pred = []
-y_true = []
-with torch.no_grad():
-    val_epoch_loss = []
-    for index, (inputs, targets) in enumerate(TestDataLoader):
-        inputs = torch.tensor(inputs).to(device)
-        targets = torch.tensor(targets).to(device)
-        inputs = inputs.float()
-        targets = targets.float()
-        outputs = model(inputs)
-        outputs = list(outputs.cpu().numpy().reshape([1, -1])[0])
-        targets = list(targets.cpu().numpy().reshape([1, -1])[0])
-        y_pred.extend(outputs)
-        y_true.extend(targets)
+# y_pred = []
+# y_true = []
+# with torch.no_grad():
+#     val_epoch_loss = []
+#     for inputs, targets in train_loader:
+#         inputs = torch.tensor(inputs).to(device)
+#         targets = torch.tensor(targets).to(device)
+#         inputs = inputs.float()
+#         targets = targets.float()
+#         outputs = model(inputs)
+#         outputs = list(outputs.cpu().numpy().reshape([1, -1])[0])
+#         targets = list(targets.cpu().numpy().reshape([1, -1])[0])
+#         y_pred.extend(outputs)
+#         y_true.extend(targets)
 
-# 画折线图
-print("y_pred", y_pred)
-print("y_true", y_true)
-len_ = [i for i in range(len(y_pred))]
+# 8. 测试集预测
+with torch.no_grad():
+    predicted = model(test_features)
+predicted = predicted.cpu().numpy()
+
+# 9. 绘制真实数据和预测数据的曲线
 plt.figure(figsize=(12, 6))
-plt.plot(len_, y_true, label='y_true', color='blue')
-plt.plot(len_, y_pred, label='y_pred', color='yellow')
-plt.figure(figsize=(12, 6))
+plt.plot(test_target, label='True')
+plt.plot(predicted, label='Predicted')
+plt.title('Transformer测井曲线预测')
 plt.legend()
+# 使用savefig保存图表为文件
+plt.savefig(('../../result/transformer/experiment15_epoch_{}.png').format(epochs))  # 保存为PNG格式的文件
 plt.show()
 
-# 将列表转换为NumPy数组
-array1 = np.array(y_true)
-array2 = np.array(y_pred)
+# 10. Calculate RMSE、MAPE
+mse = np.mean((test_target - predicted) ** 2)
+rmse = np.sqrt(np.mean((test_target - predicted) ** 2))
+mae = np.mean(np.abs(test_target - predicted))
+mape = np.mean(np.abs((test_target - predicted) / test_target))
+print("MSE", mse)  # 0.09753167668446872
+print("RMSE", rmse) # 0.3123006190907548
+print("MAPE:", mape) # 180.2477638456806 %
+# 创建一个txt文件并将结果写入其中
+resultpath = ('../../result/transformer/experiment15_epoch_{}.txt').format(epochs)
+with open(resultpath, "w") as file:
+    file.write(f"MSE: {mse}\n")
+    file.write(f"RMSE: {rmse}\n")
+    file.write(f"MAE: {mae}\n")
+    file.write(f"MAPE: {mape}\n")
 
-mse = ((array1 - array2) ** 2).mean()
-mae = np.mean(np.abs(array2 - array1))
-print("平均绝对误差（MAE）：", mae)
-print("均方误差（MSE）：", mse)
+print("预测结果已写入experiment15_epoch_{}.txt文件")

@@ -96,6 +96,7 @@ for epoch in range(num_epochs):
     print(f'Epoch [{epoch + 1}/{num_epochs}], Loss: {loss.item():.4f}')
 
 # 8. 测试集预测
+model.eval()
 with torch.no_grad():
     predicted = model(test_features)
 predicted = predicted.cpu().numpy()
