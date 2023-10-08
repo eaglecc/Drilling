@@ -1,7 +1,7 @@
 """
 __author__ = 'Cheng Yuchao'
-__project__: LSTM进行测井曲线预测实验
-__time__:  2023/09/28
+__project__: LSTM单变量长周期预测
+__time__:  2023/10/8
 __email__:"2477721334@qq.com"
 """
 
@@ -22,7 +22,7 @@ plt.rcParams['axes.unicode_minus'] = False  # 用来正常显示负号
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # 导入数据
-data = pd.read_csv('../../data/Well1_EPOR0_1.csv')
+data = pd.read_csv('../../data/Well1_EPOR0_2.csv')
 data = data.fillna(0)  # 将数据中的所有缺失值替换为0
 data_x = data[['NPHI', 'DENSITY', 'VSHALE', 'DPHI', 'EPOR0', 'LITH']]
 data_y = data['GR']
@@ -37,8 +37,8 @@ data_y = (data_y - min_value_y) / (max_value_y - min_value_y)
 look_back = 50
 # 创建回看窗口数据
 X, y = [], []
-for i in range(len(data_x) - look_back):
-    X.append(data_x[i:i + look_back])
+for i in range(len(data_y) - look_back):
+    X.append(data_y[i:i + look_back])
     y.append(data_y[i + look_back])
 X = np.array(X)
 y = np.array(y)
@@ -73,6 +73,7 @@ class LSTMModel(nn.Module):
         self.fc = nn.Linear(hidden_size, output_size)
 
     def forward(self, x):
+        x = x.reshape(-1, look_back, 1)
         out, _ = self.lstm(x)  # （3050，50，6）-->（3050，50，64）
         out = self.dropout(out)
         out = out[:, -1, :]  # 取最后一个时间步的输出（3050，50，64) --> (3050，64)
@@ -81,7 +82,7 @@ class LSTMModel(nn.Module):
 
 
 # 5. 超参数
-input_size = 6  # 特征数量
+input_size = 1  # 特征数量
 hidden_size = 64
 num_layers = 1
 output_size = 1
@@ -93,7 +94,7 @@ optimizer = optim.Adam(model.parameters(), lr=0.001)
 
 # 7. 训练模型
 # 7.1 不分batchsize进行训练
-num_epochs = 400
+num_epochs = 600
 for epoch in range(num_epochs):
     # 前向传播
     outputs = model(train_features)
@@ -126,26 +127,54 @@ with torch.no_grad():
     predicted = model(test_features)
 predicted = predicted.cpu().numpy()
 
+
+def split_tensor(input_tensor, predicted_lastRow, batch):
+    input_tensor = input_tensor.reshape(-1, look_back, 1)
+    last_batch = input_tensor[-1, -49:, :]
+    # 将predicted_lastRow与last_batch拼接在一起
+    combined_batch = torch.cat([last_batch, predicted_lastRow.unsqueeze(0)], dim=0)
+    # 将combined_batch添加到predict_result的末尾
+    input_tensor = torch.cat([input_tensor, combined_batch.unsqueeze(0)], dim=0)
+    return input_tensor
+
+
+predict_result = []
+for i in range(len(predicted) - look_back):
+    predict_result.append(predicted[i:i + look_back])
+predict_result = np.array(predict_result)
+predict_result = torch.FloatTensor(predict_result).to(device)
+predict_result = predict_result.squeeze(-1)  # 在最后一个维度上去除维度为1的维度
+
+future_window = 150
+for i in range(future_window):
+    with torch.no_grad():
+        predicted = model(predict_result)
+    predicted_lastRow = predicted[-1]
+    # predicted = torch.cat((predicted, predicted_lastRow.unsqueeze(0)), dim=0)
+    predict_result = split_tensor(predict_result, predicted_lastRow, look_back)
+
+predicted = predicted.cpu().numpy()
+
 # 9. 绘制真实数据和预测数据的曲线
 plt.figure(figsize=(12, 6))
-plt.plot(test_target, label='True')
+plt.plot(test_target[50:], label='True')
 plt.plot(predicted, label='Predicted')
 plt.title('LSTM测井预测')
 plt.legend()
 # 使用savefig保存图表为文件
-# plt.savefig(('../../result/lstm/epoch_{}.png').format(num_epochs))  # 保存为PNG格式的文件
-# print("图片已经存储至：../../result/lstm/")
+plt.savefig(('../../result/lstm/预测未来{}_epoch_{}.png').format(future_window, num_epochs))  # 保存为PNG格式的文件
+print("图片已经存储至：../../result/lstm/")
 plt.show()
 
 # 10. Calculate RMSE、MAPE
-mse = np.mean((test_target - predicted) ** 2)
-rmse = np.sqrt(np.mean((test_target - predicted) ** 2))
-mape = np.mean(np.abs((test_target - predicted) / test_target))
-mae = np.mean(np.abs(test_target - predicted))
-print("MSE", mse)
-print("MAE", mae)
-print("RMSE", rmse)
-print("MAPE:", mape)
+# mse = np.mean((test_target - predicted) ** 2)
+# rmse = np.sqrt(np.mean((test_target - predicted) ** 2))
+# mape = np.mean(np.abs((test_target - predicted) / test_target))
+# mae = np.mean(np.abs(test_target - predicted))
+# print("MSE", mse)
+# print("MAE", mae)
+# print("RMSE", rmse)
+# print("MAPE:", mape)
 
 # MSE 0.10002285609823697
 # MAE 0.23957571200598457

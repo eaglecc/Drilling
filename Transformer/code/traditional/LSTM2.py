@@ -1,7 +1,7 @@
 """
 __author__ = 'Cheng Yuchao'
-__project__: LSTM进行测井曲线预测实验
-__time__:  2023/09/28
+__project__: LSTM进行  钻前  测井曲线预测实验(多变量预测 ：效果不好)
+__time__:  2023/10/7
 __email__:"2477721334@qq.com"
 """
 
@@ -84,7 +84,7 @@ class LSTMModel(nn.Module):
 input_size = 6  # 特征数量
 hidden_size = 64
 num_layers = 1
-output_size = 1
+output_size = 6
 
 # 6.创建LSTM模型、定义损失函数和优化器
 model = LSTMModel(input_size, hidden_size, num_layers, output_size).to(device)
@@ -93,7 +93,7 @@ optimizer = optim.Adam(model.parameters(), lr=0.001)
 
 # 7. 训练模型
 # 7.1 不分batchsize进行训练
-num_epochs = 400
+num_epochs = 300
 for epoch in range(num_epochs):
     # 前向传播
     outputs = model(train_features)
@@ -126,10 +126,39 @@ with torch.no_grad():
     predicted = model(test_features)
 predicted = predicted.cpu().numpy()
 
+
+# predicted_firstColumn = predicted[:, 0]
+# predicted_lastRow = predicted[-1]
+# predicted = np.vstack((predicted, predicted_lastRow))
+
+def split_tensor(input_tensor , predicted_lastRow , batch):
+    last_batch = input_tensor[-1, -49:, :]
+    # 将predicted_lastRow与last_batch拼接在一起
+    combined_batch = torch.cat([last_batch, predicted_lastRow.unsqueeze(0)], dim=0)
+    # 将combined_batch添加到predict_result的末尾
+    input_tensor = torch.cat([input_tensor, combined_batch.unsqueeze(0)], dim=0)
+    return input_tensor
+
+
+predict_result = []
+for i in range(len(predicted) - look_back):
+    predict_result.append(predicted[i:i + look_back])
+predict_result = np.array(predict_result)
+predict_result = torch.FloatTensor(predict_result).to(device)
+
+feature_window = 300
+for i in range(feature_window):
+    with torch.no_grad():
+        predicted = model(predict_result)
+    predicted_lastRow = predicted[-1]
+    predict_result = split_tensor(predict_result , predicted_lastRow, look_back)
+
+predicted = predicted.cpu().numpy()
+
 # 9. 绘制真实数据和预测数据的曲线
 plt.figure(figsize=(12, 6))
-plt.plot(test_target, label='True')
-plt.plot(predicted, label='Predicted')
+plt.plot(test_target[50:], label='True')
+plt.plot(predicted[: , 0], label='Predicted')
 plt.title('LSTM测井预测')
 plt.legend()
 # 使用savefig保存图表为文件
@@ -146,8 +175,3 @@ print("MSE", mse)
 print("MAE", mae)
 print("RMSE", rmse)
 print("MAPE:", mape)
-
-# MSE 0.10002285609823697
-# MAE 0.23957571200598457
-# RMSE 0.3162639026165284
-# MAPE: 1.8342132738495738

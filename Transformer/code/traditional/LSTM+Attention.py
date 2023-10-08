@@ -1,7 +1,7 @@
 """
 __author__ = 'Cheng Yuchao'
-__project__: GRU进行测井曲线预测实验
-__time__:  2023/09/30
+__project__: LSTM + Attention进行测井曲线预测实验
+__time__:  2023/10/7
 __email__:"2477721334@qq.com"
 """
 
@@ -54,23 +54,29 @@ train_features = torch.FloatTensor(train_features).to(device)
 train_target = torch.FloatTensor(train_target).view(-1, 1).to(device)
 test_features = torch.FloatTensor(test_features).to(device)
 
+# 定义批次大小
+batch_size = 8  # 可以根据需求调整
 
-# 4. 定义GRU网络
-# Replace the LSTMModel definition with a GRUModel
-class GRUModel(nn.Module):
+# 使用DataLoader创建数据加载器
+train_dataset = torch.utils.data.TensorDataset(train_features, train_target)
+train_loader = torch.utils.data.DataLoader(dataset=train_dataset, batch_size=batch_size, shuffle=True)
+
+
+# 4. 定义LSTM模型
+class LSTMModel(nn.Module):
     def __init__(self, input_size, hidden_size, num_layers, output_size):
-        super(GRUModel, self).__init__()
+        super(LSTMModel, self).__init__()
         self.hidden_size = hidden_size
         self.num_layers = num_layers
-        self.gru = nn.GRU(input_size, hidden_size, num_layers, batch_first=True)
+        self.lstm = nn.LSTM(input_size, hidden_size, num_layers, batch_first=True)
         self.dropout = nn.Dropout(p=0.3)
         self.fc = nn.Linear(hidden_size, output_size)
 
     def forward(self, x):
-        out, _ = self.gru(x)  # (batch_size, seq_length, hidden_size)
+        out, _ = self.lstm(x)  # （3050，50，6）-->（3050，50，64）
         out = self.dropout(out)
-        out = out[:, -1, :]  # (batch_size, hidden_size)
-        out = self.fc(out)  # (batch_size, output_size)
+        out = out[:, -1, :]  # 取最后一个时间步的输出（3050，50，64) --> (3050，64)
+        out = self.fc(out)  # （3050，64） --> (3050 , 1)
         return out
 
 
@@ -80,22 +86,39 @@ hidden_size = 64
 num_layers = 1
 output_size = 1
 
-# 6. Create the GRU model
-model = GRUModel(input_size, hidden_size, num_layers, output_size).to(device)
+# 6.创建LSTM模型、定义损失函数和优化器
+model = LSTMModel(input_size, hidden_size, num_layers, output_size).to(device)
 criterion = nn.MSELoss()
 optimizer = optim.Adam(model.parameters(), lr=0.001)
 
 # 7. 训练模型
+# 7.1 不分batchsize进行训练
 num_epochs = 500
 for epoch in range(num_epochs):
     # 前向传播
     outputs = model(train_features)
     loss = criterion(outputs, train_target)
     # 反向传播和优化
+
     optimizer.zero_grad()
     loss.backward()
     optimizer.step()
     print(f'Epoch [{epoch + 1}/{num_epochs}], Loss: {loss.item():.4f}')
+# 7.2 分batchsize进行训练
+# num_epochs = 50
+# for epoch in range(num_epochs):
+#     for batch_features, batch_target in train_loader:
+#         # 将批次数据移到GPU上（如果可用）
+#         batch_features = batch_features.to(device)
+#         batch_target = batch_target.to(device)
+#         # 前向传播
+#         outputs = model(batch_features)
+#         loss = criterion(outputs, batch_target)
+#         # 反向传播和优化
+#         optimizer.zero_grad()
+#         loss.backward()
+#         optimizer.step()
+#     print(f'Epoch [{epoch + 1}/{num_epochs}], Loss: {loss.item():.4f}')
 
 # 8. 测试集预测
 model.eval()
@@ -107,21 +130,24 @@ predicted = predicted.cpu().numpy()
 plt.figure(figsize=(12, 6))
 plt.plot(test_target, label='True')
 plt.plot(predicted, label='Predicted')
-plt.title('GRU测井预测')
+plt.title('LSTM测井预测')
 plt.legend()
+# 使用savefig保存图表为文件
+# plt.savefig(('../../result/lstm/epoch_{}.png').format(num_epochs))  # 保存为PNG格式的文件
+# print("图片已经存储至：../../result/lstm/")
 plt.show()
 
 # 10. Calculate RMSE、MAPE
 mse = np.mean((test_target - predicted) ** 2)
-mae = np.mean(np.abs(test_target - predicted))
 rmse = np.sqrt(np.mean((test_target - predicted) ** 2))
 mape = np.mean(np.abs((test_target - predicted) / test_target))
+mae = np.mean(np.abs(test_target - predicted))
 print("MSE", mse)
 print("MAE", mae)
 print("RMSE", rmse)
 print("MAPE:", mape)
 
-# MSE 0.11492180757523424
-# MAE 0.25504874618902246
-# RMSE 0.33900119111182225
-# MAPE: 2.059663315273157
+# MSE 0.10682919748722146
+# MAE 0.2457546616807506
+# RMSE 0.3268473611446503
+# MAPE: 1.9215008795003183
