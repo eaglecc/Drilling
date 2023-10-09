@@ -1,7 +1,7 @@
 """
 __author__ = 'Cheng Yuchao'
-__project__: LSTM进行测井曲线预测实验
-__time__:  2023/09/28
+__project__: LSTM进行  序列预测  （之前的是一个点一个点预测）
+__time__:  2023/10/9
 __email__:"2477721334@qq.com"
 """
 
@@ -24,8 +24,8 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 # 导入数据
 data = pd.read_csv('../../data/Well1_EPOR0_1.csv')
 data = data.fillna(0)  # 将数据中的所有缺失值替换为0
-data_x = data[['NPHI', 'GR', 'VSHALE', 'DPHI', 'EPOR0', 'LITH']]
-data_y = data['DENSITY']
+data_x = data[['NPHI', 'DENSITY', 'VSHALE', 'DPHI', 'EPOR0', 'LITH']]
+data_y = data['GR']
 
 # 归一化
 min_value_y = data_y.min()  # 训练时y的最小值
@@ -39,7 +39,7 @@ look_back = 50
 X, y = [], []
 for i in range(len(data_x) - look_back):
     X.append(data_x[i:i + look_back])
-    y.append(data_y[i + look_back])
+    y.append(data_y[i:i + look_back])
 X = np.array(X)
 y = np.array(y)
 
@@ -51,7 +51,7 @@ test_features = X[train_size:]
 test_target = y[train_size:]
 
 train_features = torch.FloatTensor(train_features).to(device)
-train_target = torch.FloatTensor(train_target).view(-1, 1).to(device)
+train_target = torch.FloatTensor(train_target).to(device)
 test_features = torch.FloatTensor(test_features).to(device)
 
 # 定义批次大小
@@ -60,6 +60,7 @@ batch_size = 8  # 可以根据需求调整
 # 使用DataLoader创建数据加载器
 train_dataset = torch.utils.data.TensorDataset(train_features, train_target)
 train_loader = torch.utils.data.DataLoader(dataset=train_dataset, batch_size=batch_size, shuffle=True)
+
 
 # 4. 定义LSTM模型
 class LSTMModel(nn.Module):
@@ -74,7 +75,7 @@ class LSTMModel(nn.Module):
     def forward(self, x):
         out, _ = self.lstm(x)  # （3050，50，6）-->（3050，50，64）
         out = self.dropout(out)
-        out = out[:, -1, :]  # 取最后一个时间步的输出（3050，50，64) --> (3050，64)
+        # out = out[:, -1, :]  # 取最后一个时间步的输出（3050，50，64) --> (3050，64)
         out = self.fc(out)  # （3050，64） --> (3050 , 1)
         return out
 
@@ -96,6 +97,7 @@ num_epochs = 400
 for epoch in range(num_epochs):
     # 前向传播
     outputs = model(train_features)
+    outputs = outputs.squeeze(dim=-1)
     loss = criterion(outputs, train_target)
     # 反向传播和优化
 
@@ -123,11 +125,13 @@ for epoch in range(num_epochs):
 model.eval()
 with torch.no_grad():
     predicted = model(test_features)
+predicted = predicted.squeeze(dim=-1)
 predicted = predicted.cpu().numpy()
+predicted = predicted[:, -1]
 
 # 9. 绘制真实数据和预测数据的曲线
 plt.figure(figsize=(12, 6))
-plt.plot(test_target, label='True')
+plt.plot(test_target[:, -1], label='True')
 plt.plot(predicted, label='Predicted')
 plt.title('LSTM测井预测')
 plt.legend()
@@ -137,14 +141,14 @@ plt.legend()
 plt.show()
 
 # 10. Calculate RMSE、MAPE
-mse = np.mean((test_target - predicted) ** 2)
-rmse = np.sqrt(np.mean((test_target - predicted) ** 2))
-mape = np.mean(np.abs((test_target - predicted) / test_target))
-mae = np.mean(np.abs(test_target - predicted))
-print("MSE", mse)
-print("MAE", mae)
-print("RMSE", rmse)
-print("MAPE:", mape)
+# mse = np.mean((test_target - predicted) ** 2)
+# rmse = np.sqrt(np.mean((test_target - predicted) ** 2))
+# mape = np.mean(np.abs((test_target - predicted) / test_target))
+# mae = np.mean(np.abs(test_target - predicted))
+# print("MSE", mse)
+# print("MAE", mae)
+# print("RMSE", rmse)
+# print("MAPE:", mape)
 
 # MSE 0.10002285609823697
 # MAE 0.23957571200598457
