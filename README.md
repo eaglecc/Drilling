@@ -28,6 +28,13 @@
 2023/09/29：
 实验15: 想办法提升模型精度
 
+2023/10/8：路径：Transformer/code/traditional
+对比实验：
+LSTM1.py：LSTM进行测井曲线预测（拟合）
+LSTM2.py：增加output数量实现未来测井数据预测（效果不好）
+LSTM3.py：递归的方式实现未来测井数据预测
+LSTM+CNN.py：LSTM+CNN网络实现预测
+GRU1.py：GRU网络进行测井曲线预测
 
 
 

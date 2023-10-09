@@ -457,7 +457,7 @@ optimizer = torch.optim.Adam(model.parameters(), lr=0.0001)
 criterion = torch.nn.MSELoss().to(device)
 
 # 训练模型
-train_model = True
+train_model = False
 if train_model:
     val_loss = []
     train_loss = []
@@ -488,7 +488,7 @@ if train_model:
             best_test_loss = val_epoch_loss
             best_model = model
             print("best_test_loss ---------------------------", best_test_loss)
-            torch.save(best_model.state_dict(), './pth/best_Transformer_trainModel10.pth')
+            torch.save(best_model.state_dict(), '../pth/best_Transformer_trainModel10.pth')
 
     # 加载上一次的loss
     # train_loss = np.load('modelloss/loss.npz')['y1'].reshape(-1, 1)
@@ -513,7 +513,7 @@ if train_model:
 
 # 加载模型预测
 model = Transformer(in_channels=6, out_channels=1, feature_num=64).to(device)
-model.load_state_dict(torch.load('./pth/best_Transformer_trainModel10.pth'))
+model.load_state_dict(torch.load('../pth/best_Transformer_trainModel10.pth'))
 model.to(device)
 model.eval()
 # 在对模型进行评估时，应该配合使用wit torch.nograd() 与 model.eval()
@@ -523,7 +523,7 @@ y_pred = []
 y_true = []
 with torch.no_grad():
     val_epoch_loss = []
-    for index, (inputs, targets) in enumerate(TestDataLoader):
+    for index, (inputs, targets) in enumerate(TrainDataLoader):
         inputs = torch.tensor(inputs).to(device)
         targets = torch.tensor(targets).to(device)
         inputs = inputs.float()

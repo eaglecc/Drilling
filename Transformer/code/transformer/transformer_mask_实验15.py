@@ -40,7 +40,7 @@ look_back = 50
 X, y = [], []
 for i in range(len(data_x) - look_back):
     X.append(data_x[i:i + look_back])
-    y.append(data_y[i + look_back])
+    y.append(data_y[i:i + look_back])
 X = np.array(X)
 y = np.array(y)
 
@@ -52,11 +52,11 @@ test_features = X[train_size:]
 test_target = y[train_size:]
 
 train_features = torch.FloatTensor(train_features).to(device)
-train_target = torch.FloatTensor(train_target).view(-1, 1).to(device)
+train_target = torch.FloatTensor(train_target).to(device)
 test_features = torch.FloatTensor(test_features).to(device)
 
 # 定义批次大小
-batch_size = 8  # 可以根据需求调整
+batch_size = 1  # 可以根据需求调整
 
 # 使用DataLoader创建数据加载器
 train_dataset = torch.utils.data.TensorDataset(train_features, train_target)
@@ -383,7 +383,7 @@ class Decoder(nn.Module):
         for model in self.rescnn:
             x = model(x)
         x = self.out_layer(x)
-        x = x[:, :, -1] # 取最后一个时间步的输出
+        # x = x[:, :, -1] # 取最后一个时间步的输出
         return x
 
 
@@ -447,12 +447,12 @@ def test():
     return np.mean(val_epoch_loss)
 
 
-epochs = 200
+epochs = 20
 optimizer = torch.optim.Adam(model.parameters(), lr=0.0001)
 criterion = torch.nn.MSELoss().to(device)
 
 # 训练模型
-train_model = False
+train_model = True
 if train_model:
     val_loss = []
     train_loss = []
@@ -466,7 +466,7 @@ if train_model:
             targets = targets.float()
 
             outputs = model(inputs)
-
+            outputs = outputs.squeeze(dim=0)
             loss = criterion(outputs.float(), targets.float())
             # 反向传播
             optimizer.zero_grad()  # 清零梯度
@@ -531,17 +531,18 @@ model.eval()
 
 # 8. 测试集预测
 with torch.no_grad():
-    predicted = model(test_features)
+    predicted = model(train_features)
 predicted = predicted.cpu().numpy()
-
+predicted = predicted[:, :, -1]
 # 9. 绘制真实数据和预测数据的曲线
 plt.figure(figsize=(12, 6))
+test_target = train_target[:,-1].cpu().numpy()
 plt.plot(test_target, label='True')
 plt.plot(predicted, label='Predicted')
 plt.title('Transformer测井曲线预测')
 plt.legend()
 # 使用savefig保存图表为文件
-plt.savefig(('../../result/transformer/experiment15_epoch_{}.png').format(epochs))  # 保存为PNG格式的文件
+plt.savefig(('../../result/transformer/experiment15_batch{}_epoch_{}.png').format(batch_size,epochs))  # 保存为PNG格式的文件
 plt.show()
 
 # 10. Calculate RMSE、MAPE
@@ -550,10 +551,10 @@ rmse = np.sqrt(np.mean((test_target - predicted) ** 2))
 mae = np.mean(np.abs(test_target - predicted))
 mape = np.mean(np.abs((test_target - predicted) / test_target))
 print("MSE", mse)  # 0.09753167668446872
-print("RMSE", rmse) # 0.3123006190907548
-print("MAPE:", mape) # 180.2477638456806 %
+print("RMSE", rmse)  # 0.3123006190907548
+print("MAPE:", mape)  # 180.2477638456806 %
 # 创建一个txt文件并将结果写入其中
-resultpath = ('../../result/transformer/experiment15_epoch_{}.txt').format(epochs)
+resultpath = ('../../result/transformer/experiment15_batch{}_epoch_{}.txt').format(batch_size,epochs)
 with open(resultpath, "w") as file:
     file.write(f"MSE: {mse}\n")
     file.write(f"RMSE: {rmse}\n")
