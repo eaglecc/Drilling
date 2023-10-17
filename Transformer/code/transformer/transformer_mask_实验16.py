@@ -23,11 +23,13 @@ plt.rcParams['axes.unicode_minus'] = False  # 用来正常显示负号
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # 1. 导入数据
-data = pd.read_csv('../../data/Well4_EPOR0_1.csv')
+data = pd.read_csv('../../data/Well3_EPOR0_1.csv')
 # data.dropna(axis=0, how='any')  #只要行中包含任何一个缺失值，就删除整行。
 data = data.fillna(0)  # 将数据中的所有缺失值替换为0
-data_x = data[['DENSITY', 'NPHI', 'VSHALE', 'DPHI', 'EPOR0', 'LITH']].values
-data_y = data['GR'].values
+# data_x = data[['DENSITY', 'NPHI', 'VSHALE', 'DPHI', 'EPOR0', 'LITH']].values
+data_x = data[['GR', 'NPHI', 'EPOR0','PEF']].values
+data_y = data['DENSITY'].values
+input_features = 4
 
 #  Min-Max归一化
 min_value_y = data_y.min()  # 训练时y的最小值
@@ -46,11 +48,19 @@ X = np.array(X)
 y = np.array(y)
 
 # 3. 划分数据集为训练集和测试集
-train_size = int(0.8 * len(X))
-train_features = X[:train_size]
-train_target = y[:train_size]
-test_features = X[train_size:]
-test_target = y[train_size:]
+
+train_size1 = int(0.5 * len(X))
+train_size2 = int(0.7 * len(X))
+
+train_features1 = X[:train_size1]
+train_features2 = X[train_size2:]
+train_features = np.concatenate((train_features1, train_features2), axis=0)
+
+train_target1 = y[:train_size1]
+train_target2 = y[train_size2:]
+train_target = np.concatenate((train_target1, train_target2), axis=0)
+test_features = X[train_size1:train_size2]
+test_target = y[train_size1:train_size2]
 
 train_features = torch.FloatTensor(train_features).to(device)
 train_target = torch.FloatTensor(train_target).to(device)
@@ -86,6 +96,10 @@ class Input_Embedding(nn.Module):
             feature_num: (int) high-level feature number
         """
         super().__init__()
+        # lstm
+        self.lstm = nn.LSTM(input_features, feature_num, 1, batch_first=True)
+        # self.dropout = nn.Dropout(p=0.3)
+        # cnn + rescnn
         self.conv1 = nn.Sequential(
             nn.Conv1d(in_channels=in_channels, out_channels=feature_num, kernel_size=11, padding=5, stride=1),
             nn.BatchNorm1d(feature_num),
@@ -104,10 +118,14 @@ class Input_Embedding(nn.Module):
         Returns:
             x:[B,feature_num,L]
         """
-        # conv1: [B,C,L]-->[B,feature_num,L]
-        x = self.conv1(x)
-        # rescnn:[B,feature_num,L]-->[B,feature_num,L]
-        for model in self.rescnn:
+        # lstm层
+        # x = x.permute(0, 2, 1)
+        # x, _ = self.lstm(x)  # （3050，50，6）-->（3050，50，64）
+        # # x = self.dropout(x)
+        # x = x.permute(0, 2, 1)
+
+        x = self.conv1(x)  # conv1: [B,C,L]-->[B,feature_num,L]
+        for model in self.rescnn:  # rescnn:[B,feature_num,L]-->[B,feature_num,L]
             x = model(x)
         return x
 
@@ -204,6 +222,7 @@ class TransformerEncoder(nn.Module):
         self.feedforward = FeedForward(in_features=dim, hidden_features=mlp_hidden_dim, act_layer=act_layer, drop=drop)
 
     def forward(self, x):
+        # 注意力
         x = self.norm1(x + self.attn(x))
         x = self.norm2(x + self.feedforward(x))
         return x
@@ -381,8 +400,8 @@ class Decoder(nn.Module):
 
         Returns:
         """
-        # for model in self.rescnn:
-        #     x = model(x)
+        for model in self.rescnn:
+            x = model(x)
         x = self.out_layer(x)
         # x = x[:, :, -1] # 取最后一个时间步的输出
         return x
@@ -433,9 +452,7 @@ class Transformer(nn.Module):
         return x
 
 
-
-
-model = Transformer(in_channels=6, out_channels=1, feature_num=64).to(device)
+model = Transformer(in_channels=input_features, out_channels=1, feature_num=64).to(device)
 
 
 def test():
@@ -488,7 +505,7 @@ if train_model:
             best_test_loss = val_epoch_loss
             best_model = model
             print("best_test_loss ---------------------------", best_test_loss)
-            torch.save(best_model.state_dict(), '../pth/best_Transformer_trainModel15.pth')
+            torch.save(best_model.state_dict(), '../pth/best_Transformer_trainModel16_DENSITY.pth')
 
     # 加载上一次的loss
     # train_loss = np.load('modelloss/loss.npz')['y1'].reshape(-1, 1)
@@ -512,42 +529,26 @@ if train_model:
     plt.show()
 
 # 加载模型预测
-model = Transformer(in_channels=6, out_channels=1, feature_num=64).to(device)
-model.load_state_dict(torch.load('../pth/best_Transformer_trainModel15.pth'))
+model = Transformer(in_channels=input_features, out_channels=1, feature_num=64).to(device)
+model.load_state_dict(torch.load('../pth/best_Transformer_trainModel16_DENSITY.pth'))
 model.to(device)
 model.eval()
 # 在对模型进行评估时，应该配合使用wit torch.nograd() 与 model.eval()
 
-# 开始预测
-# y_pred = []
-# y_true = []
-# with torch.no_grad():
-#     val_epoch_loss = []
-#     for inputs, targets in train_loader:
-#         inputs = torch.tensor(inputs).to(device)
-#         targets = torch.tensor(targets).to(device)
-#         inputs = inputs.float()
-#         targets = targets.float()
-#         outputs = model(inputs)
-#         outputs = list(outputs.cpu().numpy().reshape([1, -1])[0])
-#         targets = list(targets.cpu().numpy().reshape([1, -1])[0])
-#         y_pred.extend(outputs)
-#         y_true.extend(targets)
-
 # 8. 测试集预测
 with torch.no_grad():
-    predicted = model(train_features)
+    predicted = model(torch.FloatTensor(X).to(device))
 predicted = predicted.cpu().numpy()
 predicted = predicted[:, :, -1]
 # 9. 绘制真实数据和预测数据的曲线
 plt.figure(figsize=(12, 6))
-test_target = train_target[:, -1].cpu().numpy()
+test_target = y[:, -1]
 plt.plot(test_target, label='True')
 plt.plot(predicted, label='Predicted')
 plt.title('Transformer测井曲线预测')
 plt.legend()
 # 使用savefig保存图表为文件
-plt.savefig(('../../result/transformer/experiment15_batch{}_epoch_{}.png').format(batch_size, epochs))  # 保存为PNG格式的文件
+plt.savefig(('../../result/transformer/experiment16_batch{}_epoch_{}.png').format(batch_size, epochs))  # 保存为PNG格式的文件
 plt.show()
 
 # 10. Calculate RMSE、MAPE
@@ -559,7 +560,7 @@ print("MSE", mse)  # 0.09753167668446872
 print("RMSE", rmse)  # 0.3123006190907548
 print("MAPE:", mape)  # 180.2477638456806 %
 # 创建一个txt文件并将结果写入其中
-resultpath = ('../../result/transformer/experiment15_batch{}_epoch_{}.txt').format(batch_size, epochs)
+resultpath = ('../../result/transformer/experiment16_batch{}_epoch_{}.txt').format(batch_size, epochs)
 with open(resultpath, "w") as file:
     file.write(f"MSE: {mse}\n")
     file.write(f"RMSE: {rmse}\n")

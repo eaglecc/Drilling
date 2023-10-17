@@ -1,7 +1,7 @@
 """
 __author__ = 'Cheng Yuchao'
-__project__: 实验17：在MWLT上修改Decoder部分为简单的线性层、增加rescnn层数为6效果都不好，然后减少特征数验证模型的有效性（对比LSTM）
-__time__:  2023/09/29
+__project__: 实验19: 测井曲线补全实验
+__time__:  2023/10/16
 __email__:"2477721334@qq.com"
 """
 import numpy as np
@@ -15,7 +15,7 @@ import math
 import matplotlib.pyplot as plt
 import warnings
 import causal_convolution_layer
-import os
+from einops import rearrange
 
 warnings.filterwarnings("ignore")
 plt.rcParams['font.sans-serif'] = ['SimHei']  # 图例中显示中文
@@ -27,8 +27,10 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 data = pd.read_csv('../../data/Well3_EPOR0_1.csv')
 # data.dropna(axis=0, how='any')  #只要行中包含任何一个缺失值，就删除整行。
 data = data.fillna(0)  # 将数据中的所有缺失值替换为0
-data_x = data[['NPHI', 'DENSITY', 'PEF', 'EPOR0', 'DEPTH', 'LITH', 'DPHI']].values
-data_y = data['GR'].values
+# data_x = data[['DENSITY', 'NPHI', 'VSHALE', 'DPHI', 'EPOR0', 'LITH']].values
+data_x = data[['GR', 'NPHI', 'PEF', 'EPOR0']].values
+data_y = data['DENSITY'].values
+input_features = 4
 
 #  Min-Max归一化
 min_value_y = data_y.min()  # 训练时y的最小值
@@ -37,7 +39,7 @@ data_x = (data_x - data_x.min()) / (data_x.max() - data_x.min())
 data_y = (data_y - min_value_y) / (max_value_y - min_value_y)
 
 # 2. 定义回看窗口大小
-look_back = 100
+look_back = 50
 # 创建回看窗口数据
 X, y = [], []
 for i in range(len(data_x) - look_back):
@@ -47,21 +49,22 @@ X = np.array(X)
 y = np.array(y)
 
 # 3. 划分数据集为训练集和测试集
+
 train_size1 = int(0.5 * len(X))
 train_size2 = int(0.7 * len(X))
 
 train_features1 = X[:train_size1]
-# train_features2 = X[train_size2:]
-# train_features = np.concatenate((train_features1, train_features2), axis=0)
+train_features2 = X[train_size2:]
+train_features = np.concatenate((train_features1, train_features2), axis=0)
 
 train_target1 = y[:train_size1]
-# train_target2 = y[train_size2:]
-# train_target = np.concatenate((train_target1, train_target2), axis=0)
+train_target2 = y[train_size2:]
+train_target = np.concatenate((train_target1, train_target2), axis=0)
 test_features = X[train_size1:train_size2]
 test_target = y[train_size1:train_size2]
 
-train_features = torch.FloatTensor(train_features1).to(device)
-train_target = torch.FloatTensor(train_target1).to(device)
+train_features = torch.FloatTensor(train_features).to(device)
+train_target = torch.FloatTensor(train_target).to(device)
 test_features = torch.FloatTensor(test_features).to(device)
 
 # 定义批次大小
@@ -94,12 +97,17 @@ class Input_Embedding(nn.Module):
             feature_num: (int) high-level feature number
         """
         super().__init__()
+        # lstm
+        self.lstm = nn.LSTM(input_features, feature_num, 1, batch_first=True)
+        self.dropout = nn.Dropout(p=0.3)
+        # cnn + rescnn
         self.conv1 = nn.Sequential(
-            nn.Conv1d(in_channels=in_channels, out_channels=feature_num, kernel_size=11, padding=5, stride=1),
-            nn.BatchNorm1d(feature_num),
-            nn.ReLU())
+            nn.Conv1d(in_channels=in_channels, out_channels=feature_num, kernel_size=7, padding=3, stride=1),
+            # nn.BatchNorm1d(input_features),
+            # nn.ReLU()
+        )
         self.rescnn = nn.ModuleList(
-            [ResCNN(in_channels=feature_num, out_channels=feature_num, kernel_size=11, padding=5, stride=1) for i
+            [ResCNN(in_channels=feature_num, out_channels=feature_num, kernel_size=7, padding=3, stride=1) for i
              in range(res_num)])
 
     def forward(self, x):
@@ -112,11 +120,16 @@ class Input_Embedding(nn.Module):
         Returns:
             x:[B,feature_num,L]
         """
-        # conv1: [B,C,L]-->[B,feature_num,L]
-        x = self.conv1(x)
-        # rescnn:[B,feature_num,L]-->[B,feature_num,L]
-        for model in self.rescnn:
-            x = model(x)
+        x = self.conv1(x)  # conv1: [B,C,L]-->[B,feature_num,L]
+
+        # lstm层
+        # x = x.permute(0, 2, 1)
+        # x, _ = self.lstm(x)  # （3050，50，6）-->（3050，50，64）
+        # x = self.dropout(x)
+        # x = x.permute(0, 2, 1)
+
+        # for model in self.rescnn:  # rescnn:[B,feature_num,L]-->[B,feature_num,L]
+        #     x = model(x)
         return x
 
 
@@ -205,13 +218,19 @@ class TransformerEncoder(nn.Module):
         """
         super().__init__()
         self.norm1 = norm_layer(dim)
-        self.attn = SelfAttention(dim=dim, num_heads=num_heads, qkv_bias=qkv_bias, attn_drop=attn_drop, proj_drop=drop)
+
+        # 普通注意力：SelfAttention
+        # self.attn = SelfAttention(dim=dim, num_heads=num_heads, qkv_bias=qkv_bias, attn_drop=attn_drop, proj_drop=drop)
+        # Vector: Attention_Rel_Vec
         # self.attn = Attention_Rel_Vec(emb_size=dim, num_heads=num_heads, seq_len=44, dropout=attn_drop)
+        # eRPE: Attention_Rel_Scl
+        self.attn = Attention_Rel_Scl(emb_size=dim, num_heads=8, seq_len=50, dropout=attn_drop)
         self.norm2 = norm_layer(dim)
         mlp_hidden_dim = int(dim * mlp_ratio)
         self.feedforward = FeedForward(in_features=dim, hidden_features=mlp_hidden_dim, act_layer=act_layer, drop=drop)
 
     def forward(self, x):
+        # 注意力
         x = self.norm1(x + self.attn(x))
         x = self.norm2(x + self.feedforward(x))
         return x
@@ -334,6 +353,58 @@ class Attention_Rel_Vec(nn.Module):
         return Srel
 
 
+class Attention_Rel_Scl(nn.Module):
+    def __init__(self, emb_size, num_heads, seq_len, dropout):
+        super().__init__()
+        self.seq_len = seq_len
+        self.num_heads = num_heads
+        self.scale = emb_size ** -0.5
+        # self.to_qkv = nn.Linear(inp, inner_dim * 3, bias=False)
+        self.key = nn.Linear(emb_size, emb_size, bias=False)
+        self.value = nn.Linear(emb_size, emb_size, bias=False)
+        self.query = nn.Linear(emb_size, emb_size, bias=False)
+
+        self.relative_bias_table = nn.Parameter(torch.zeros((2 * self.seq_len - 1), num_heads))
+        coords = torch.meshgrid((torch.arange(1), torch.arange(self.seq_len)))
+        coords = torch.flatten(torch.stack(coords), 1)
+        relative_coords = coords[:, :, None] - coords[:, None, :]
+        relative_coords[1] += self.seq_len - 1
+        relative_coords = rearrange(relative_coords, 'c h w -> h w c')
+        relative_index = relative_coords.sum(-1).flatten().unsqueeze(1)
+        self.register_buffer("relative_index", relative_index)
+
+        self.dropout = nn.Dropout(dropout)
+        self.to_out = nn.LayerNorm(emb_size)
+
+    def forward(self, x):
+        batch_size, seq_len, _ = x.shape
+        k = self.key(x).reshape(batch_size, seq_len, self.num_heads, -1).permute(0, 2, 3, 1)
+        v = self.value(x).reshape(batch_size, seq_len, self.num_heads, -1).transpose(1, 2)
+        q = self.query(x).reshape(batch_size, seq_len, self.num_heads, -1).transpose(1, 2)
+        # k,v,q shape = (batch_size, num_heads, seq_len, d_head)
+
+        attn = torch.matmul(q, k) * self.scale
+        # attn shape (seq_len, seq_len)
+        attn = nn.functional.softmax(attn, dim=-1)
+
+        # Use "gather" for more efficiency on GPUs
+        relative_bias = self.relative_bias_table.gather(0, self.relative_index.repeat(1, 8))
+        relative_bias = rearrange(relative_bias, '(h w) c -> 1 c h w', h=1 * self.seq_len, w=1 * self.seq_len)
+        attn = attn + relative_bias
+
+        # distance_pd = pd.DataFrame(relative_bias[0,0,:,:].cpu().detach().numpy())
+        # distance_pd.to_csv('scalar_position_distance.csv')
+
+        out = torch.matmul(attn, v)
+        # out.shape = (batch_size, num_heads, seq_len, d_head)
+        out = out.transpose(1, 2)
+        # out.shape == (batch_size, seq_len, num_heads, d_head)
+        out = out.reshape(batch_size, seq_len, -1)
+        # out.shape == (batch_size, seq_len, d_model)
+        out = self.to_out(out)
+        return out
+
+
 class FeedForward(nn.Module):
     def __init__(self, in_features, hidden_features=None, out_features=None, act_layer=nn.GELU, drop=0.):
         """
@@ -374,14 +445,13 @@ class Decoder(nn.Module):
         """
         super().__init__()
         self.rescnn = nn.ModuleList(
-            [ResCNN(in_channels=feature_num, out_channels=feature_num, kernel_size=11, padding=5, stride=1) for
+            [ResCNN(in_channels=feature_num, out_channels=feature_num, kernel_size=7, padding=3, stride=1) for
              i in range(res_num)])
         self.out_layer = nn.Sequential(
-            nn.Conv1d(in_channels=feature_num, out_channels=out_channels, kernel_size=11, padding=5, stride=1),
+            nn.Conv1d(in_channels=feature_num, out_channels=out_channels, kernel_size=7, padding=3, stride=1),
             nn.Sigmoid()  # normal
             # nn.ReLU()   # nonormal
         )
-        self.fc1 = torch.nn.Linear(feature_num, 1)
 
     def forward(self, x):
         """
@@ -390,9 +460,10 @@ class Decoder(nn.Module):
 
         Returns:
         """
-        for model in self.rescnn:
-            x = model(x)
+        # for model in self.rescnn:
+        #     x = model(x)
         x = self.out_layer(x)
+        # x = x[:, :, -1] # 取最后一个时间步的输出
         return x
 
 
@@ -417,7 +488,7 @@ class Transformer(nn.Module):
         self.feature_embedding = Input_Embedding(in_channels=in_channels, feature_num=feature_num, res_num=res_num)
         self.position_embedding = PositionalEncoding(d_model=dim, dropout=position_drop, seq_len=seq_len)
         self.use_pe = use_pe
-        self.transformer_encdoer = TransformerBlock(block_num=encoder_num, dim=dim, num_heads=num_heads,
+        self.transformer_encdoer = TransformerBlock(block_num=4, dim=dim, num_heads=num_heads,
                                                     mlp_ratio=mlp_ratio, qkv_bias=qkv_bias, drop=drop,
                                                     attn_drop=attn_drop,
                                                     act_layer=act_layer, norm_layer=norm_layer)
@@ -441,7 +512,7 @@ class Transformer(nn.Module):
         return x
 
 
-model = Transformer(in_channels=7, out_channels=1, feature_num=64).to(device)
+model = Transformer(in_channels=input_features, out_channels=1, feature_num=64).to(device)
 
 
 def test():
@@ -458,8 +529,8 @@ def test():
     return np.mean(val_epoch_loss)
 
 
-epochs = 1
-optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
+epochs = 10
+optimizer = torch.optim.Adam(model.parameters(), lr=0.0001)
 criterion = torch.nn.MSELoss().to(device)
 
 # 训练模型
@@ -494,7 +565,7 @@ if train_model:
             best_test_loss = val_epoch_loss
             best_model = model
             print("best_test_loss ---------------------------", best_test_loss)
-            torch.save(best_model.state_dict(), '../pth/best_Transformer_trainModel17_GR.pth')
+            torch.save(best_model.state_dict(), '../pth/best_Transformer_trainModel19_DENSITY.pth')
 
     # 加载上一次的loss
     # train_loss = np.load('modelloss/loss.npz')['y1'].reshape(-1, 1)
@@ -518,26 +589,26 @@ if train_model:
     plt.show()
 
 # 加载模型预测
-model = Transformer(in_channels=7, out_channels=1, feature_num=64).to(device)
-model.load_state_dict(torch.load('../pth/best_Transformer_trainModel17_GR.pth'))
+model = Transformer(in_channels=input_features, out_channels=1, feature_num=64).to(device)
+model.load_state_dict(torch.load('../pth/best_Transformer_trainModel19_DENSITY.pth'))
 model.to(device)
 model.eval()
 # 在对模型进行评估时，应该配合使用wit torch.nograd() 与 model.eval()
 
 # 8. 测试集预测
 with torch.no_grad():
-    predicted = model(test_features)
+    predicted = model(torch.FloatTensor(X).to(device))
 predicted = predicted.cpu().numpy()
 predicted = predicted[:, :, -1]
 # 9. 绘制真实数据和预测数据的曲线
 plt.figure(figsize=(12, 6))
-test_target = test_target[:, -1]
+test_target = y[:, -1]
 plt.plot(test_target, label='True')
 plt.plot(predicted, label='Predicted')
 plt.title('Transformer测井曲线预测')
 plt.legend()
 # 使用savefig保存图表为文件
-plt.savefig(('../../result/transformer/experiment17_batch{}_epoch_{}.png').format(batch_size, epochs))  # 保存为PNG格式的文件
+plt.savefig(('../../result/transformer/experiment19_batch{}_epoch_{}.png').format(batch_size, epochs))  # 保存为PNG格式的文件
 plt.show()
 
 # 10. Calculate RMSE、MAPE
@@ -549,28 +620,11 @@ print("MSE", mse)  # 0.09753167668446872
 print("RMSE", rmse)  # 0.3123006190907548
 print("MAPE:", mape)  # 180.2477638456806 %
 # 创建一个txt文件并将结果写入其中
-resultpath = ('../../result/transformer/experiment17_batch{}_epoch_{}.txt').format(batch_size, epochs)
+resultpath = ('../../result/transformer/experiment19_batch{}_epoch_{}.txt').format(batch_size, epochs)
 with open(resultpath, "w") as file:
     file.write(f"MSE: {mse}\n")
     file.write(f"RMSE: {rmse}\n")
     file.write(f"MAE: {mae}\n")
     file.write(f"MAPE: {mape}\n")
 
-print("预测结果已写入experiment17_epoch_{}.txt文件")
-
-# 11. 存储预测结果
-file_name = '../../result/transformer_result_DataSet1.xlsx'
-# 检查文件是否存在
-if os.path.exists(file_name):
-    # 如果文件已存在，读取已有数据
-    df = pd.read_excel(file_name)
-    # 创建一个新列并将数据添加到 DataFrame
-    df['transformer_GR_predicted'] = predicted
-    df['transformer_GR_true'] = test_target
-    # 写入 DataFrame 到 Excel 文件
-    df.to_excel(file_name, index=False)  # index=False 防止写入索引列
-else:
-    # 如果文件不存在，创建一个新 Excel 文件并存储数据
-    df = pd.DataFrame({'transformer_GR_predicted': predicted.flatten()})  # 创建一个新 DataFrame
-    df['transformer_GR_true'] = test_target
-    df.to_excel(file_name, index=False)  # index=False 防止写入索引列
+print("预测结果已写入experiment15_epoch_{}.txt文件")
