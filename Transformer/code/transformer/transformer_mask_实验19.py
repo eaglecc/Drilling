@@ -1,6 +1,9 @@
 """
 __author__ = 'Cheng Yuchao'
 __project__: 实验19: 测井曲线补全实验
+修改Input Embedding 为Conv1d层（删除BatchNorm及ReLU）
+修改Position Encoding 为相对位置编码方式（即 eRPE: Attention_Rel_Scl）
+修改Decoder层 为Conv1d + Sigmoid
 __time__:  2023/10/16
 __email__:"2477721334@qq.com"
 """

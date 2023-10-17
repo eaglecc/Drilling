@@ -41,7 +41,10 @@ GRU1.py：GRU网络进行测井曲线预测
 实验16：在MWLT上结合ConvTransformer中的Local Attention机制:在Transformer前加入Conv（已有）、修改Decoder部分为conv+sigmoid
 实验17：在MWLT上修改Decoder部分为简单的线性层/增加rescnn层数为6
 实验18：Transformer调整窗口数据预测未来数据
-
+实验19: 测井曲线补全实验
+        修改Input Embedding 为Conv1d层（删除BatchNorm及ReLU）
+        修改Position Encoding 为相对位置编码方式（即 eRPE: Attention_Rel_Scl）
+        修改Decoder层 为Conv1d + Sigmoid
 
 
 
