@@ -1,10 +1,7 @@
 """
 __author__ = 'Cheng Yuchao'
-__project__: 实验19: 测井曲线补全实验
-修改Input Embedding 为Conv1d层（删除BatchNorm及ReLU）
-修改Position Encoding 为相对位置编码方式（即 eRPE: Attention_Rel_Scl）
-修改Decoder层 为Conv1d + Sigmoid
-__time__:  2023/10/16
+__project__: 实验24: 钻前测井曲线预测：大庆油田数据集 A井 上 进行未来测井曲线预测
+__time__:  2023/10/19
 __email__:"2477721334@qq.com"
 """
 import numpy as np
@@ -27,13 +24,12 @@ plt.rcParams['axes.unicode_minus'] = False  # 用来正常显示负号
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # 1. 导入数据
-data = pd.read_csv('../../data/Well3_EPOR0_1.csv')
+data = pd.read_csv('../../data/daqingyoutian/vertical_all_A1.csv')
 # data.dropna(axis=0, how='any')  #只要行中包含任何一个缺失值，就删除整行。
 data = data.fillna(0)  # 将数据中的所有缺失值替换为0
-# data_x = data[['DENSITY', 'NPHI', 'VSHALE', 'DPHI', 'EPOR0', 'LITH']].values
-data_x = data[['GR', 'NPHI', 'PEF', 'EPOR0']].values
-data_y = data['DENSITY'].values
-input_features = 4
+data_x = data[['RMN-RMG', 'CAL     .cm ', 'SP      .mv  ', 'GR      .   ', 'HAC     .us/m', 'BHC     .']].values
+data_y = data['DEN     .g/cm3 '].values
+input_features = 6
 
 #  Min-Max归一化
 min_value_y = data_y.min()  # 训练时y的最小值
@@ -42,30 +38,23 @@ data_x = (data_x - data_x.min()) / (data_x.max() - data_x.min())
 data_y = (data_y - min_value_y) / (max_value_y - min_value_y)
 
 # 2. 定义回看窗口大小
-look_back = 80
-# 创建回看窗口数据
+look_back = 500
+future_window = 200
+
 X, y = [], []
-for i in range(len(data_x) - look_back):
+for i in range(len(data_x) - look_back - future_window + 1):
     X.append(data_x[i:i + look_back])
-    y.append(data_y[i:i + look_back])
+    y.append(data_y[i + look_back: i + look_back + future_window])
 X = np.array(X)
 y = np.array(y)
 
 # 3. 划分数据集为训练集和测试集
-
-train_size1 = int(0.5 * len(X))
-train_size2 = int(0.7 * len(X))
-
-train_features1 = X[:train_size1]
-train_features2 = X[train_size2:]
-train_features = np.concatenate((train_features1, train_features2), axis=0)
-
-train_target1 = y[:train_size1]
-train_target2 = y[train_size2:]
-train_target = np.concatenate((train_target1, train_target2), axis=0)
-test_features = X[train_size1:train_size2]
-test_target = y[train_size1:train_size2]
-
+train_size = int(0.8 * len(X))
+test_size = int(len(X) - train_size)
+train_features = X[:train_size]
+train_target = y[:train_size]
+test_features = X[train_size:]
+test_target = y[train_size:]
 train_features = torch.FloatTensor(train_features).to(device)
 train_target = torch.FloatTensor(train_target).to(device)
 test_features = torch.FloatTensor(test_features).to(device)
@@ -227,7 +216,7 @@ class TransformerEncoder(nn.Module):
         # Vector: Attention_Rel_Vec
         # self.attn = Attention_Rel_Vec(emb_size=dim, num_heads=num_heads, seq_len=44, dropout=attn_drop)
         # eRPE: Attention_Rel_Scl
-        self.attn = Attention_Rel_Scl(emb_size=dim, num_heads=8, seq_len=80, dropout=attn_drop)
+        self.attn = Attention_Rel_Scl(emb_size=dim, num_heads=8, seq_len=look_back, dropout=attn_drop)
         self.norm2 = norm_layer(dim)
         mlp_hidden_dim = int(dim * mlp_ratio)
         self.feedforward = FeedForward(in_features=dim, hidden_features=mlp_hidden_dim, act_layer=act_layer, drop=drop)
@@ -455,6 +444,7 @@ class Decoder(nn.Module):
             nn.Sigmoid()  # normal
             # nn.ReLU()   # nonormal
         )
+        self.linear_layer2 = torch.nn.Linear(look_back, future_window)
 
     def forward(self, x):
         """
@@ -466,7 +456,7 @@ class Decoder(nn.Module):
         # for model in self.rescnn:
         #     x = model(x)
         x = self.out_layer(x)
-        # x = x[:, :, -1] # 取最后一个时间步的输出
+        x = self.linear_layer2(x)
         return x
 
 
@@ -532,12 +522,12 @@ def test():
     return np.mean(val_epoch_loss)
 
 
-epochs = 10
+epochs = 3
 optimizer = torch.optim.Adam(model.parameters(), lr=0.0001)
 criterion = torch.nn.MSELoss().to(device)
 
 # 训练模型
-train_model = True
+train_model = False
 if train_model:
     val_loss = []
     train_loss = []
@@ -568,7 +558,7 @@ if train_model:
             best_test_loss = val_epoch_loss
             best_model = model
             print("best_test_loss ---------------------------", best_test_loss)
-            torch.save(best_model.state_dict(), '../pth/best_Transformer_trainModel19_DENSITY.pth')
+            torch.save(best_model.state_dict(), '../pth/best_Transformer_trainModel24_DEN.pth')
 
     # 加载上一次的loss
     # train_loss = np.load('modelloss/loss.npz')['y1'].reshape(-1, 1)
@@ -593,25 +583,29 @@ if train_model:
 
 # 加载模型预测
 model = Transformer(in_channels=input_features, out_channels=1, feature_num=64).to(device)
-model.load_state_dict(torch.load('../pth/best_Transformer_trainModel19_DENSITY.pth'))
+model.load_state_dict(torch.load('../pth/best_Transformer_trainModel24_DEN.pth'))
 model.to(device)
 model.eval()
 # 在对模型进行评估时，应该配合使用wit torch.nograd() 与 model.eval()
 
 # 8. 测试集预测
 with torch.no_grad():
-    predicted = model(torch.FloatTensor(X).to(device))
+    train_features = train_features[-300:, :, :]
+    predicted = model(train_features)
 predicted = predicted.cpu().numpy()
-predicted = predicted[:, :, -1]
+predicted_train = predicted[:, :, 0]
+predicted_future = predicted[-1, :, :].reshape(-1, 1)
+predicted = np.concatenate((predicted_train, predicted_future))
+
 # 9. 绘制真实数据和预测数据的曲线
 plt.figure(figsize=(12, 6))
-test_target = y[:, -1]
+test_target = test_target[1, :]
 plt.plot(test_target, label='True')
-plt.plot(predicted, label='Predicted')
+plt.plot(predicted_future, label='Predicted')
 plt.title('Transformer测井曲线预测')
 plt.legend()
 # 使用savefig保存图表为文件
-plt.savefig(('../../result/transformer/experiment19_batch{}_epoch_{}.png').format(batch_size, epochs))  # 保存为PNG格式的文件
+plt.savefig(('../../result/transformer/experiment24_batch{}_epoch_{}.png').format(batch_size, epochs))  # 保存为PNG格式的文件
 plt.show()
 
 # 10. Calculate RMSE、MAPE
@@ -623,7 +617,7 @@ print("MSE", mse)  # 0.09753167668446872
 print("RMSE", rmse)  # 0.3123006190907548
 print("MAPE:", mape)  # 180.2477638456806 %
 # 创建一个txt文件并将结果写入其中
-resultpath = ('../../result/transformer/experiment19_batch{}_epoch_{}.txt').format(batch_size, epochs)
+resultpath = ('../../result/transformer/experiment24_batch{}_epoch_{}.txt').format(batch_size, epochs)
 with open(resultpath, "w") as file:
     file.write(f"MSE: {mse}\n")
     file.write(f"RMSE: {rmse}\n")

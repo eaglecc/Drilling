@@ -1,10 +1,7 @@
 """
 __author__ = 'Cheng Yuchao'
-__project__: 实验19: 测井曲线补全实验
-修改Input Embedding 为Conv1d层（删除BatchNorm及ReLU）
-修改Position Encoding 为相对位置编码方式（即 eRPE: Attention_Rel_Scl）
-修改Decoder层 为Conv1d + Sigmoid
-__time__:  2023/10/16
+__project__: 实验23: 测井曲线补全实验：井B数据集中使用密度、中子孔隙度、光电因子、有效孔隙度  预测  伽马射线值
+__time__:  2023/10/19
 __email__:"2477721334@qq.com"
 """
 import numpy as np
@@ -27,12 +24,20 @@ plt.rcParams['axes.unicode_minus'] = False  # 用来正常显示负号
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # 1. 导入数据
-data = pd.read_csv('../../data/Well3_EPOR0_1.csv')
+data = pd.read_csv('../../data/Well2_EPOR0_1.csv')
 # data.dropna(axis=0, how='any')  #只要行中包含任何一个缺失值，就删除整行。
 data = data.fillna(0)  # 将数据中的所有缺失值替换为0
 # data_x = data[['DENSITY', 'NPHI', 'VSHALE', 'DPHI', 'EPOR0', 'LITH']].values
-data_x = data[['GR', 'NPHI', 'PEF', 'EPOR0']].values
-data_y = data['DENSITY'].values
+data_x = data[['DENSITY', 'NPHI', 'PEF', 'EPOR0']]
+# 异常值处理：NPHI和PEF不为负值
+data_x.loc[data_x['NPHI'] < 0, 'NPHI'] = 0
+data_x.loc[data_x['PEF'] < 0, 'PEF'] = 0
+window_size = 6  # 移动平均窗口大小
+data_x['PEF'] = data_x['PEF'].rolling(window=window_size).mean()
+data_x = data_x.fillna(0)  # 将数据中的所有缺失值替换为0
+data_x = data_x.values
+
+data_y = data['GR'].values
 input_features = 4
 
 #  Min-Max归一化
@@ -532,12 +537,12 @@ def test():
     return np.mean(val_epoch_loss)
 
 
-epochs = 10
+epochs = 200
 optimizer = torch.optim.Adam(model.parameters(), lr=0.0001)
 criterion = torch.nn.MSELoss().to(device)
 
 # 训练模型
-train_model = True
+train_model = False
 if train_model:
     val_loss = []
     train_loss = []
@@ -568,7 +573,7 @@ if train_model:
             best_test_loss = val_epoch_loss
             best_model = model
             print("best_test_loss ---------------------------", best_test_loss)
-            torch.save(best_model.state_dict(), '../pth/best_Transformer_trainModel19_DENSITY.pth')
+            torch.save(best_model.state_dict(), '../pth/best_Transformer_trainModel23_GR.pth')
 
     # 加载上一次的loss
     # train_loss = np.load('modelloss/loss.npz')['y1'].reshape(-1, 1)
@@ -593,7 +598,7 @@ if train_model:
 
 # 加载模型预测
 model = Transformer(in_channels=input_features, out_channels=1, feature_num=64).to(device)
-model.load_state_dict(torch.load('../pth/best_Transformer_trainModel19_DENSITY.pth'))
+model.load_state_dict(torch.load('../pth/best_Transformer_trainModel23_GR.pth'))
 model.to(device)
 model.eval()
 # 在对模型进行评估时，应该配合使用wit torch.nograd() 与 model.eval()
@@ -611,7 +616,7 @@ plt.plot(predicted, label='Predicted')
 plt.title('Transformer测井曲线预测')
 plt.legend()
 # 使用savefig保存图表为文件
-plt.savefig(('../../result/transformer/experiment19_batch{}_epoch_{}.png').format(batch_size, epochs))  # 保存为PNG格式的文件
+plt.savefig(('../../result/transformer/experiment23_batch{}_epoch_{}.png').format(batch_size, epochs))  # 保存为PNG格式的文件
 plt.show()
 
 # 10. Calculate RMSE、MAPE
@@ -623,7 +628,7 @@ print("MSE", mse)  # 0.09753167668446872
 print("RMSE", rmse)  # 0.3123006190907548
 print("MAPE:", mape)  # 180.2477638456806 %
 # 创建一个txt文件并将结果写入其中
-resultpath = ('../../result/transformer/experiment19_batch{}_epoch_{}.txt').format(batch_size, epochs)
+resultpath = ('../../result/transformer/experiment23_batch{}_epoch_{}.txt').format(batch_size, epochs)
 with open(resultpath, "w") as file:
     file.write(f"MSE: {mse}\n")
     file.write(f"RMSE: {rmse}\n")

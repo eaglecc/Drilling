@@ -24,12 +24,12 @@ plt.rcParams['axes.unicode_minus'] = False  # 用来正常显示负号
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # 导入数据
-data = pd.read_csv('../../data/Well4_EPOR0_1.csv')
+data = pd.read_csv('../../data/Well3_EPOR0_1.csv')
 data = data.fillna(0)  # 将数据中的所有缺失值替换为0
 # DataSet2 = data[['GR', 'DENSITY', 'VSHALE', 'PEF', 'DPHI', 'EPOR0', 'LITH', 'DEPTH' , 'NPHI']]
 # DataSet1 = data[['GR', 'NPHI', 'DENSITY', 'PEF', 'EPOR0', 'DEPTH']]
 
-data_x = data[['GR', 'NPHI', 'EPOR0']]
+data_x = data[['GR', 'NPHI', 'PEF', 'EPOR0']]
 data_y = data['DENSITY']
 # data_y = data['DENSITY']
 # data_y = data['EPOR0']
@@ -41,7 +41,7 @@ data_x = (data_x - data_x.min()) / (data_x.max() - data_x.min())
 data_y = (data_y - min_value_y) / (max_value_y - min_value_y)
 
 # 2. 定义回看窗口大小
-look_back = 100
+look_back = 80
 # 创建回看窗口数据
 X, y = [], []
 for i in range(len(data_x) - look_back):
@@ -95,7 +95,7 @@ class LSTMModel(nn.Module):
 
 
 # 5. 超参数
-input_size = 3  # 特征数量
+input_size = 4  # 特征数量
 hidden_size = 64
 num_layers = 1
 output_size = 1
@@ -119,7 +119,7 @@ optimizer = optim.Adam(model.parameters(), lr=0.001)
 #     optimizer.step()
 #     print(f'Epoch [{epoch + 1}/{num_epochs}], Loss: {loss.item():.4f}')
 # 7.2 分batchsize进行训练
-num_epochs = 100
+num_epochs = 10
 for epoch in range(num_epochs):
     for batch_features, batch_target in train_loader:
         # 将批次数据移到GPU上（如果可用）
@@ -152,10 +152,10 @@ plt.legend()
 plt.show()
 
 # 10. Calculate RMSE、MAPE
-mse = np.mean((test_target - predicted) ** 2)
-rmse = np.sqrt(np.mean((test_target - predicted) ** 2))
-mape = np.mean(np.abs((test_target - predicted) / test_target))
-mae = np.mean(np.abs(test_target - predicted))
+mse = np.mean((y - predicted) ** 2)
+rmse = np.sqrt(np.mean((y - predicted) ** 2))
+mape = np.mean(np.abs((y - predicted) / y))
+mae = np.mean(np.abs(y - predicted))
 print("MSE", mse)
 print("MAE", mae)
 print("RMSE", rmse)
@@ -169,11 +169,11 @@ print("MAPE:", mape)
 #     df = pd.read_excel(file_name)
 #     # 创建一个新列并将数据添加到 DataFrame
 #     df['lstm_DENSITY_predicted'] = predicted
-#     df['lstm_DENSITY_true'] = test_target
+#     df['lstm_DENSITY_true'] = y
 #     # 写入 DataFrame 到 Excel 文件
 #     df.to_excel(file_name, index=False)  # index=False 防止写入索引列
 # else:
 #     # 如果文件不存在，创建一个新 Excel 文件并存储数据
 #     df = pd.DataFrame({'lstm_DENSITY_predicted': predicted.flatten()})  # 创建一个新 DataFrame
-#     df['lstm_DENSITY_true'] = test_target
+#     df['lstm_DENSITY_true'] = y
 #     df.to_excel(file_name, index=False)  # index=False 防止写入索引列

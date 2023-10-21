@@ -24,7 +24,7 @@ plt.rcParams['axes.unicode_minus'] = False  # 用来正常显示负号
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # 导入数据
-data = pd.read_csv('../../data/Well3_EPOR0_1.csv')
+data = pd.read_csv('../../data/Well2_EPOR0_1.csv')
 data = data.fillna(0)  # 将数据中的所有缺失值替换为0
 # DataSet2 = data[['GR', 'DENSITY', 'VSHALE', 'PEF', 'DPHI', 'EPOR0', 'LITH', 'DEPTH' , 'NPHI']]
 # DataSet1 = data[['GR', 'NPHI', 'DENSITY', 'PEF', 'EPOR0', 'DEPTH']]
@@ -53,7 +53,7 @@ data_x = (data_x - data_x.min()) / (data_x.max() - data_x.min())
 data_y = (data_y - min_value_y) / (max_value_y - min_value_y)
 
 # 2. 定义回看窗口大小
-look_back = 100
+look_back = 80
 # 创建回看窗口数据
 X, y = [], []
 for i in range(len(data_x) - look_back):
@@ -119,32 +119,32 @@ optimizer = optim.Adam(model.parameters(), lr=0.001)
 
 # 7. 训练模型
 # 7.1 不分batchsize进行训练
-num_epochs = 400
-for epoch in range(num_epochs):
-    # 前向传播
-    outputs = model(train_features)
-    loss = criterion(outputs, train_target)
-    # 反向传播和优化
-
-    optimizer.zero_grad()
-    loss.backward()
-    optimizer.step()
-    print(f'Epoch [{epoch + 1}/{num_epochs}], Loss: {loss.item():.4f}')
-# 7.2 分batchsize进行训练
-# num_epochs = 100
+# num_epochs = 200
 # for epoch in range(num_epochs):
-#     for batch_features, batch_target in train_loader:
-#         # 将批次数据移到GPU上（如果可用）
-#         batch_features = batch_features.to(device)
-#         batch_target = batch_target.to(device)
-#         # 前向传播
-#         outputs = model(batch_features)
-#         loss = criterion(outputs, batch_target)
-#         # 反向传播和优化
-#         optimizer.zero_grad()
-#         loss.backward()
-#         optimizer.step()
-#     print(f'Epoch [{epoch + 1}/{num_epochs}], Loss: {loss.item():.6f}')
+#     # 前向传播
+#     outputs = model(train_features)
+#     loss = criterion(outputs, train_target)
+#     # 反向传播和优化
+#
+#     optimizer.zero_grad()
+#     loss.backward()
+#     optimizer.step()
+#     print(f'Epoch [{epoch + 1}/{num_epochs}], Loss: {loss.item():.4f}')
+# 7.2 分batchsize进行训练
+num_epochs = 100
+for epoch in range(num_epochs):
+    for batch_features, batch_target in train_loader:
+        # 将批次数据移到GPU上（如果可用）
+        batch_features = batch_features.to(device)
+        batch_target = batch_target.to(device)
+        # 前向传播
+        outputs = model(batch_features)
+        loss = criterion(outputs, batch_target)
+        # 反向传播和优化
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+    print(f'Epoch [{epoch + 1}/{num_epochs}], Loss: {loss.item():.6f}')
 
 # 8. 测试集预测
 model.eval()
@@ -164,10 +164,10 @@ plt.legend()
 plt.show()
 
 # 10. Calculate RMSE、MAPE
-mse = np.mean((test_target - predicted) ** 2)
-rmse = np.sqrt(np.mean((test_target - predicted) ** 2))
-mape = np.mean(np.abs((test_target - predicted) / test_target))
-mae = np.mean(np.abs(test_target - predicted))
+mse = np.mean((y - predicted) ** 2)
+rmse = np.sqrt(np.mean((y - predicted) ** 2))
+mape = np.mean(np.abs((y - predicted) / y))
+mae = np.mean(np.abs(y - predicted))
 print("MSE", mse)
 print("MAE", mae)
 print("RMSE", rmse)
@@ -187,5 +187,5 @@ print("MAPE:", mape)
 # else:
 #     # 如果文件不存在，创建一个新 Excel 文件并存储数据
 #     df = pd.DataFrame({'lstm_GR_predicted': predicted.flatten()})  # 创建一个新 DataFrame
-#     df['lstm_GR_true'] = test_target
+#     df['lstm_GR_true'] = y
 #     df.to_excel(file_name, index=False)  # index=False 防止写入索引列
