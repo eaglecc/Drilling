@@ -1,6 +1,6 @@
 """
 __author__ = 'Cheng Yuchao'
-__project__: 实验24: 钻前测井曲线预测：大庆油田数据集 A井 上 进行未来测井曲线预测
+__project__: 实验24: 钻前测井曲线预测：大庆油田数据集 A井 上 进行未来测井曲线预测 预测密度：DEN
 __time__:  2023/10/19
 __email__:"2477721334@qq.com"
 """
@@ -32,9 +32,11 @@ data_y = data['DEN     .g/cm3 '].values
 input_features = 6
 
 #  Min-Max归一化
+min_value_x = data_x.min()
+max_value_x = data_x.max()
 min_value_y = data_y.min()  # 训练时y的最小值
 max_value_y = data_y.max()  # 训练时y的最大值
-data_x = (data_x - data_x.min()) / (data_x.max() - data_x.min())
+data_x = (data_x - min_value_x) / (max_value_x - min_value_x)
 data_y = (data_y - min_value_y) / (max_value_y - min_value_y)
 
 # 2. 定义回看窗口大小
@@ -49,7 +51,7 @@ X = np.array(X)
 y = np.array(y)
 
 # 3. 划分数据集为训练集和测试集
-train_size = int(0.8 * len(X))
+train_size = int(0.95 * len(X))
 test_size = int(len(X) - train_size)
 train_features = X[:train_size]
 train_target = y[:train_size]
@@ -522,7 +524,7 @@ def test():
     return np.mean(val_epoch_loss)
 
 
-epochs = 3
+epochs = 80
 optimizer = torch.optim.Adam(model.parameters(), lr=0.0001)
 criterion = torch.nn.MSELoss().to(device)
 
@@ -590,8 +592,8 @@ model.eval()
 
 # 8. 测试集预测
 with torch.no_grad():
-    train_features = train_features[-300:, :, :]
-    predicted = model(train_features)
+    # test_features = test_features[:, :, :]
+    predicted = model(test_features)
 predicted = predicted.cpu().numpy()
 predicted_train = predicted[:, :, 0]
 predicted_future = predicted[-1, :, :].reshape(-1, 1)
@@ -599,9 +601,11 @@ predicted = np.concatenate((predicted_train, predicted_future))
 
 # 9. 绘制真实数据和预测数据的曲线
 plt.figure(figsize=(12, 6))
-test_target = test_target[1, :]
+test_target_train = test_target[:, 0]
+test_target_future = test_target[-1, :]
+test_target = np.concatenate((test_target_train , test_target_future))
 plt.plot(test_target, label='True')
-plt.plot(predicted_future, label='Predicted')
+plt.plot(predicted, label='Predicted')
 plt.title('Transformer测井曲线预测')
 plt.legend()
 # 使用savefig保存图表为文件
@@ -624,4 +628,15 @@ with open(resultpath, "w") as file:
     file.write(f"MAE: {mae}\n")
     file.write(f"MAPE: {mape}\n")
 
-print("预测结果已写入experiment15_epoch_{}.txt文件")
+print("预测结果已写入experiment24_epoch_{}.txt文件")
+
+# 11. 存储预测结果
+# 反归一化
+predicted_original_data = predicted * (max_value_y - min_value_y) + min_value_y
+test_target_original_data = test_target * (max_value_y - min_value_y) + min_value_y
+file_name = '../../result/daqingyoutian_result_DEN.xlsx'
+# 如果文件不存在，创建一个新 Excel 文件并存储数据
+df = pd.DataFrame({'well1_DEN_predicted': predicted_original_data.flatten()})  # 创建一个新 DataFrame
+df['well1_DEN_true'] = test_target_original_data
+df.to_excel(file_name, index=False)  # index=False 防止写入索引列
+

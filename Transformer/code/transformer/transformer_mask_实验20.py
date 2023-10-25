@@ -48,7 +48,7 @@ data_x = (data_x - data_x.min()) / (data_x.max() - data_x.min())
 data_y = (data_y - min_value_y) / (max_value_y - min_value_y)
 
 # 2. 定义回看窗口大小
-look_back = 50
+look_back = 80
 # 创建回看窗口数据
 X, y = [], []
 for i in range(len(data_x) - look_back):
@@ -59,8 +59,8 @@ y = np.array(y)
 
 # 3. 划分数据集为训练集和测试集
 
-train_size1 = int(0.5 * len(X))
-train_size2 = int(0.7 * len(X))
+train_size1 = int(0.4 * len(X))
+train_size2 = int(0.6 * len(X))
 
 train_features1 = X[:train_size1]
 train_features2 = X[train_size2:]
@@ -97,7 +97,7 @@ def transformer_generate_tgt_mask(length, device):
 
 
 class Input_Embedding(nn.Module):
-    def __init__(self, in_channels=1, res_num=4, feature_num=64):
+    def __init__(self, in_channels=1, res_num=4, feature_num=128):
         """
         Input_Embedding layer
         Args:
@@ -234,7 +234,7 @@ class TransformerEncoder(nn.Module):
         # Vector: Attention_Rel_Vec
         # self.attn = Attention_Rel_Vec(emb_size=dim, num_heads=num_heads, seq_len=44, dropout=attn_drop)
         # eRPE: Attention_Rel_Scl
-        self.attn = Attention_Rel_Scl(emb_size=dim, num_heads=8, seq_len=50, dropout=attn_drop)
+        self.attn = Attention_Rel_Scl(emb_size=dim, num_heads=8, seq_len=80, dropout=attn_drop)
         self.norm2 = norm_layer(dim)
         mlp_hidden_dim = int(dim * mlp_ratio)
         self.feedforward = FeedForward(in_features=dim, hidden_features=mlp_hidden_dim, act_layer=act_layer, drop=drop)
@@ -445,7 +445,7 @@ class FeedForward(nn.Module):
 
 
 class Decoder(nn.Module):
-    def __init__(self, res_num=4, out_channels=1, feature_num=64):
+    def __init__(self, res_num=4, out_channels=1, feature_num=128):
         """
 
         Args:
@@ -479,8 +479,8 @@ class Decoder(nn.Module):
 
 # Transformer结构
 class Transformer(nn.Module):
-    def __init__(self, in_channels=1, out_channels=1, feature_num=64, res_num=4, encoder_num=4, use_pe=False,
-                 dim=64, seq_len=160, num_heads=4, mlp_ratio=4., qkv_bias=False, drop=0., attn_drop=0.,
+    def __init__(self, in_channels=1, out_channels=1, feature_num=128, res_num=4, encoder_num=4, use_pe=False,
+                 dim=128, seq_len=160, num_heads=4, mlp_ratio=4., qkv_bias=False, drop=0., attn_drop=0.,
                  position_drop=0.,
                  act_layer=nn.GELU, norm_layer=nn.LayerNorm
                  ):
@@ -522,7 +522,7 @@ class Transformer(nn.Module):
         return x
 
 
-model = Transformer(in_channels=input_features, out_channels=1, feature_num=64).to(device)
+model = Transformer(in_channels=input_features, out_channels=1, feature_num=128).to(device)
 
 
 def test():
@@ -539,12 +539,12 @@ def test():
     return np.mean(val_epoch_loss)
 
 
-epochs = 10
+epochs = 50
 optimizer = torch.optim.Adam(model.parameters(), lr=0.0001)
 criterion = torch.nn.MSELoss().to(device)
 
 # 训练模型
-train_model = True
+train_model = False
 if train_model:
 
     val_loss = []
@@ -600,7 +600,7 @@ if train_model:
     plt.show()
 
 # 加载模型预测
-model = Transformer(in_channels=input_features, out_channels=1, feature_num=64).to(device)
+model = Transformer(in_channels=input_features, out_channels=1, feature_num=128).to(device)
 model.load_state_dict(torch.load('../pth/best_Transformer_trainModel20_DENSITY.pth'))
 model.to(device)
 model.eval()
@@ -618,7 +618,7 @@ plt.plot(test_target, label='True')
 plt.plot(predicted, label='Predicted')
 plt.title('Transformer测井曲线预测')
 plt.legend()
-# plt.xlim(2500, 4000)
+# plt.xlim(1900, 2900)
 # 使用savefig保存图表为文件
 plt.savefig(('../../result/transformer/experiment20_batch{}_epoch_{}.png').format(batch_size, epochs))  # 保存为PNG格式的文件
 plt.show()
@@ -643,7 +643,7 @@ print("预测结果已写入experiment15_epoch_{}.txt文件")
 
 
 # 11. 存储预测结果
-file_name = '../../result/transformer_result.xlsx'
+file_name = '../../result/WLPtransformer_result.xlsx'
 # 如果文件不存在，创建一个新 Excel 文件并存储数据
 df = pd.DataFrame({'well3_DEN_predicted': predicted.flatten()})  # 创建一个新 DataFrame
 df['well3_DEN_true'] = test_target

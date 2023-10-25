@@ -51,8 +51,8 @@ X = np.array(X)
 y = np.array(y)
 
 # 3. 划分数据集为训练集和测试集
-train_size1 = int(0.5 * len(X))
-train_size2 = int(0.7 * len(X))
+train_size1 = int(0.4 * len(X))
+train_size2 = int(0.6 * len(X))
 
 train_features1 = X[:train_size1]
 train_features2 = X[train_size2:]
@@ -162,18 +162,18 @@ print("RMSE", rmse)
 print("MAPE:", mape)
 
 # 11. 存储预测结果
-# file_name = '../../result/lstm_result.xlsx'
-# # 检查文件是否存在
-# if os.path.exists(file_name):
-#     # 如果文件已存在，读取已有数据
-#     df = pd.read_excel(file_name)
-#     # 创建一个新列并将数据添加到 DataFrame
-#     df['lstm_DENSITY_predicted'] = predicted
-#     df['lstm_DENSITY_true'] = y
-#     # 写入 DataFrame 到 Excel 文件
-#     df.to_excel(file_name, index=False)  # index=False 防止写入索引列
-# else:
-#     # 如果文件不存在，创建一个新 Excel 文件并存储数据
-#     df = pd.DataFrame({'lstm_DENSITY_predicted': predicted.flatten()})  # 创建一个新 DataFrame
-#     df['lstm_DENSITY_true'] = y
-#     df.to_excel(file_name, index=False)  # index=False 防止写入索引列
+file_name = '../../result/lstm_result.xlsx'
+# 检查文件是否存在
+if os.path.exists(file_name):
+    # 如果文件已存在，读取已有数据
+    df = pd.read_excel(file_name)
+    # 创建一个新列并将数据添加到 DataFrame
+    df['lstm_DENSITY_predicted'] = predicted
+    df['lstm_DENSITY_true'] = y
+    # 写入 DataFrame 到 Excel 文件
+    df.to_excel(file_name, index=False)  # index=False 防止写入索引列
+else:
+    # 如果文件不存在，创建一个新 Excel 文件并存储数据
+    df = pd.DataFrame({'lstm_DENSITY_predicted': predicted.flatten()})  # 创建一个新 DataFrame
+    df['lstm_DENSITY_true'] = y
+    df.to_excel(file_name, index=False)  # index=False 防止写入索引列

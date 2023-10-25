@@ -58,8 +58,8 @@ y = np.array(y)
 
 # 3. 划分数据集为训练集和测试集
 
-train_size1 = int(0.5 * len(X))
-train_size2 = int(0.7 * len(X))
+train_size1 = int(0.4 * len(X))
+train_size2 = int(0.6 * len(X))
 
 train_features1 = X[:train_size1]
 train_features2 = X[train_size2:]
@@ -537,7 +537,7 @@ def test():
     return np.mean(val_epoch_loss)
 
 
-epochs = 200
+epochs = 50
 optimizer = torch.optim.Adam(model.parameters(), lr=0.0001)
 criterion = torch.nn.MSELoss().to(device)
 
