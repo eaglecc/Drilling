@@ -1,6 +1,8 @@
 """
 __author__ = 'Cheng Yuchao'
-__project__: 实验24: 钻前测井曲线预测：大庆油田数据集 A井 上 进行未来测井曲线预测 预测密度：DEN
+__project__:
+原始Transformer对比实验
+实验28: 测井曲线补全实验：井C数据集中使用伽马射线值、中子孔隙度、光电因子、有效孔隙度  预测  密度
 __time__:  2023/10/19
 __email__:"2477721334@qq.com"
 """
@@ -16,6 +18,7 @@ import matplotlib.pyplot as plt
 import warnings
 import causal_convolution_layer
 from einops import rearrange
+import os
 
 warnings.filterwarnings("ignore")
 plt.rcParams['font.sans-serif'] = ['SimHei']  # 图例中显示中文
@@ -24,39 +27,53 @@ plt.rcParams['axes.unicode_minus'] = False  # 用来正常显示负号
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # 1. 导入数据
-data = pd.read_csv('../../data/daqingyoutian/vertical_all_A1.csv')
+data = pd.read_csv('../../data/Well3_EPOR0_1.csv')
 # data.dropna(axis=0, how='any')  #只要行中包含任何一个缺失值，就删除整行。
 data = data.fillna(0)  # 将数据中的所有缺失值替换为0
-data_x = data[['RMN-RMG', 'CAL     .cm ', 'SP      .mv  ', 'GR      .   ', 'HAC     .us/m', 'BHC     .']].values
-data_y = data['DEN     .g/cm3 '].values
-input_features = 6
+# data_x = data[['DENSITY', 'NPHI', 'VSHALE', 'DPHI', 'EPOR0', 'LITH']].values
+data_x = data[['GR', 'NPHI', 'PEF', 'EPOR0']]
+# 异常值处理：NPHI和PEF不为负值
+data_x.loc[data_x['NPHI'] < 0, 'NPHI'] = 0
+data_x.loc[data_x['PEF'] < 0, 'PEF'] = 0
+window_size = 6  # 移动平均窗口大小
+data_x['PEF'] = data_x['PEF'].rolling(window=window_size).mean()
+data_x = data_x.fillna(0)  # 将数据中的所有缺失值替换为0
+data_x = data_x.values
+
+data_y = data['DENSITY'].values
+input_features = 4
 
 #  Min-Max归一化
-min_value_x = data_x.min()
-max_value_x = data_x.max()
 min_value_y = data_y.min()  # 训练时y的最小值
 max_value_y = data_y.max()  # 训练时y的最大值
-data_x = (data_x - min_value_x) / (max_value_x - min_value_x)
+data_x = (data_x - data_x.min()) / (data_x.max() - data_x.min())
 data_y = (data_y - min_value_y) / (max_value_y - min_value_y)
 
 # 2. 定义回看窗口大小
-look_back = 500
-future_window = 200
-
+look_back = 80
+# 创建回看窗口数据
 X, y = [], []
-for i in range(len(data_x) - look_back - future_window + 1):
+for i in range(len(data_x) - look_back):
     X.append(data_x[i:i + look_back])
-    y.append(data_y[i + look_back: i + look_back + future_window])
+    y.append(data_y[i:i + look_back])
 X = np.array(X)
 y = np.array(y)
 
 # 3. 划分数据集为训练集和测试集
-train_size = int(0.95 * len(X))
-test_size = int(len(X) - train_size)
-train_features = X[:train_size]
-train_target = y[:train_size]
-test_features = X[train_size:]
-test_target = y[train_size:]
+
+train_size1 = int(0.4 * len(X))
+train_size2 = int(0.6 * len(X))
+
+train_features1 = X[:train_size1]
+train_features2 = X[train_size2:]
+train_features = np.concatenate((train_features1, train_features2), axis=0)
+
+train_target1 = y[:train_size1]
+train_target2 = y[train_size2:]
+train_target = np.concatenate((train_target1, train_target2), axis=0)
+test_features = X[train_size1:train_size2]
+test_target = y[train_size1:train_size2]
+
 train_features = torch.FloatTensor(train_features).to(device)
 train_target = torch.FloatTensor(train_target).to(device)
 test_features = torch.FloatTensor(test_features).to(device)
@@ -82,7 +99,7 @@ def transformer_generate_tgt_mask(length, device):
 
 
 class Input_Embedding(nn.Module):
-    def __init__(self, in_channels=1, res_num=4, feature_num=64):
+    def __init__(self, in_channels=1, res_num=4, feature_num=128):
         """
         Input_Embedding layer
         Args:
@@ -96,6 +113,7 @@ class Input_Embedding(nn.Module):
         self.dropout = nn.Dropout(p=0.3)
         # cnn + rescnn
         self.conv1 = nn.Sequential(
+            # nn.Conv1d(in_channels=in_channels, out_channels=in_channels, kernel_size=7, padding=3, stride=1),
             nn.Conv1d(in_channels=in_channels, out_channels=feature_num, kernel_size=7, padding=3, stride=1),
             # nn.BatchNorm1d(feature_num),
             nn.ReLU()
@@ -163,37 +181,64 @@ class ResCNN(nn.Module):
 
 
 class PositionalEncoding(nn.Module):
-    def __init__(self, d_model, dropout, seq_len):
-        """
-        Position Embedding
-        Args:
-            d_model: (int) feature dimension
-            dropout: (float) drop rate
-            seq_len: (int) sequence length
-        """
-        super().__init__()
+    def __init__(self, d_model, dropout=0.1, max_len=5000):
+        super(PositionalEncoding, self).__init__()
+        ## 位置编码的实现其实很简单，直接对照着公式去敲代码就可以，下面这个代码只是其中一种实现方式；
+        ## 从理解来讲，需要注意的就是偶数和奇数在公式上有一个共同部分，我们使用log函数把次方拿下来，方便计算；
+        ## pos代表的是单词在句子中的索引，这点需要注意；比如max_len是128个，那么索引就是从0，1，2，...,127
+        ##假设我的demodel是512，2i那个符号中i从0取到了255，那么2i对应取值就是0,2,4...510
         self.dropout = nn.Dropout(p=dropout)
-        pe = torch.zeros(seq_len, d_model).float()
-        position = torch.arange(0, seq_len).unsqueeze(1).float()
-        div_term = torch.exp(torch.arange(0, d_model, 2).float() * (-math.log(10000.0) / d_model)).float()
-        pe[:, 0::2] = torch.sin(position * div_term)
-        pe[:, 1::2] = torch.cos(position * div_term)
-        pe = pe.unsqueeze(0)
-        self.register_buffer('pe', pe)
+
+        pe = torch.zeros(max_len, d_model)
+        position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)
+        div_term = torch.exp(torch.arange(0, d_model, 2).float() * (-math.log(10000.0) / d_model))
+        pe[:, 0::2] = torch.sin(position * div_term)  ## 这里需要注意的是pe[:, 0::2]这个用法，就是从0开始到最后面，补长为2，其实代表的就是偶数位置
+        pe[:, 1::2] = torch.cos(position * div_term)  ##这里需要注意的是pe[:, 1::2]这个用法，就是从1开始到最后面，补长为2，其实代表的就是奇数位置
+        ## 上面代码获取之后得到的pe:[max_len*d_model]
+        ## 下面这个代码之后，我们得到的pe形状是：[max_len*1*d_model]
+        pe = pe.unsqueeze(0).transpose(0, 1)
+        self.register_buffer('pe', pe)  ## 定一个缓冲区，其实简单理解为这个参数不更新就可以
 
     def forward(self, x):
         """
-
-        Args:
-            x:[B,L,C] batch_size,sequence len,channel number
-
-        Returns:
-
+        x: [seq_len, batch_size, d_model]
         """
-        x = x + torch.autograd.Variable(self.pe[:, :x.size(1)],
-                                        requires_grad=False)
+        x = x + self.pe[:x.size(0), :]
         return self.dropout(x)
 
+
+# class PositionalEncoding(nn.Module):
+#     def __init__(self, d_model, dropout, seq_len):
+#         """
+#         Position Embedding
+#         Args:
+#             d_model: (int) feature dimension
+#             dropout: (float) drop rate
+#             seq_len: (int) sequence length
+#         """
+#         super().__init__()
+#         self.dropout = nn.Dropout(p=dropout)
+#         pe = torch.zeros(seq_len, d_model).float()
+#         position = torch.arange(0, seq_len).unsqueeze(1).float()
+#         div_term = torch.exp(torch.arange(0, d_model, 2).float() * (-math.log(10000.0) / d_model)).float()
+#         pe[:, 0::2] = torch.sin(position * div_term)
+#         pe[:, 1::2] = torch.cos(position * div_term)
+#         pe = pe.unsqueeze(0)
+#         self.register_buffer('pe', pe)
+#
+#     def forward(self, x):
+#         """
+#
+#         Args:
+#             x:[B,L,C] batch_size,sequence len,channel number
+#
+#         Returns:
+#
+#         """
+#         x = x + torch.autograd.Variable(self.pe[:, :x.size(1)],
+#                                         requires_grad=False)
+#         return self.dropout(x)
+#
 
 class TransformerEncoder(nn.Module):
     def __init__(self, dim, num_heads, mlp_ratio=4., qkv_bias=False, drop=0., attn_drop=0.,
@@ -214,11 +259,11 @@ class TransformerEncoder(nn.Module):
         self.norm1 = norm_layer(dim)
 
         # 普通注意力：SelfAttention
-        # self.attn = SelfAttention(dim=dim, num_heads=num_heads, qkv_bias=qkv_bias, attn_drop=attn_drop, proj_drop=drop)
+        self.attn = SelfAttention(dim=dim, num_heads=num_heads, qkv_bias=qkv_bias, attn_drop=attn_drop, proj_drop=drop)
         # Vector: Attention_Rel_Vec
         # self.attn = Attention_Rel_Vec(emb_size=dim, num_heads=num_heads, seq_len=44, dropout=attn_drop)
         # eRPE: Attention_Rel_Scl
-        self.attn = Attention_Rel_Scl(emb_size=dim, num_heads=8, seq_len=look_back, dropout=attn_drop)
+        # self.attn = Attention_Rel_Scl(emb_size=dim, num_heads=8, seq_len=80, dropout=attn_drop)
         self.norm2 = norm_layer(dim)
         mlp_hidden_dim = int(dim * mlp_ratio)
         self.feedforward = FeedForward(in_features=dim, hidden_features=mlp_hidden_dim, act_layer=act_layer, drop=drop)
@@ -429,7 +474,7 @@ class FeedForward(nn.Module):
 
 
 class Decoder(nn.Module):
-    def __init__(self, res_num=4, out_channels=1, feature_num=64):
+    def __init__(self, res_num=4, out_channels=1, feature_num=128):
         """
 
         Args:
@@ -446,7 +491,6 @@ class Decoder(nn.Module):
             nn.Sigmoid()  # normal
             # nn.ReLU()   # nonormal
         )
-        self.linear_layer2 = torch.nn.Linear(look_back, future_window)
 
     def forward(self, x):
         """
@@ -458,14 +502,14 @@ class Decoder(nn.Module):
         # for model in self.rescnn:
         #     x = model(x)
         x = self.out_layer(x)
-        x = self.linear_layer2(x)
+        # x = x[:, :, -1] # 取最后一个时间步的输出
         return x
 
 
 # Transformer结构
 class Transformer(nn.Module):
-    def __init__(self, in_channels=1, out_channels=1, feature_num=64, res_num=4, encoder_num=4, use_pe=False,
-                 dim=64, seq_len=160, num_heads=4, mlp_ratio=4., qkv_bias=False, drop=0., attn_drop=0.,
+    def __init__(self, in_channels=1, out_channels=1, feature_num=128, res_num=4, encoder_num=4, use_pe=False,
+                 dim=128, seq_len=160, num_heads=4, mlp_ratio=4., qkv_bias=False, drop=0., attn_drop=0.,
                  position_drop=0.,
                  act_layer=nn.GELU, norm_layer=nn.LayerNorm
                  ):
@@ -481,33 +525,104 @@ class Transformer(nn.Module):
         # 调用父类的构造函数
         super(Transformer, self).__init__()
         self.feature_embedding = Input_Embedding(in_channels=in_channels, feature_num=feature_num, res_num=res_num)
-        self.position_embedding = PositionalEncoding(d_model=dim, dropout=position_drop, seq_len=seq_len)
+        # self.position_embedding = PositionalEncoding(d_model=dim, dropout=position_drop, seq_len=seq_len)
         self.use_pe = use_pe
         self.transformer_encdoer = TransformerBlock(block_num=4, dim=dim, num_heads=num_heads,
                                                     mlp_ratio=mlp_ratio, qkv_bias=qkv_bias, drop=drop,
                                                     attn_drop=attn_drop,
                                                     act_layer=act_layer, norm_layer=norm_layer)
-        self.decoder = Decoder(out_channels=out_channels, feature_num=feature_num, res_num=res_num)
+        # self.decoder = Decoder(out_channels=out_channels, feature_num=feature_num, res_num=res_num)
+
+        # 位置编码层
+        self.input_positional_encoding = PositionalEncoding(dim, max_len=look_back)
+        self.target_positional_encoding = PositionalEncoding(dim, max_len=look_back)
+
+        # 创建输入序列位置编码和目标序列位置编码的嵌入层
+        self.input_pos_embedding = torch.nn.Embedding(5000, embedding_dim=dim)
+        self.target_pos_embedding = torch.nn.Embedding(5000, embedding_dim=dim)
+        # 创建输入和输出特征的线性投影层
+        self.input_projection = torch.nn.Linear(input_features, dim)
+        self.output_projection = torch.nn.Linear(input_features, dim)
+
+        encoder_layer = torch.nn.TransformerEncoderLayer(d_model=dim, nhead=num_heads, dropout=drop,
+                                                         dim_feedforward=2 * dim)
+        decoder_layer = torch.nn.TransformerDecoderLayer(d_model=dim, nhead=num_heads, dropout=drop,
+                                                         dim_feedforward=2 * dim)
+
+        # 创建Transformer编码器和解码器
+        self.encoder = torch.nn.TransformerEncoder(encoder_layer, num_layers=4)
+        self.decoder = torch.nn.TransformerDecoder(decoder_layer, num_layers=4)
+        self.linear = torch.nn.Linear(dim, 1)
+
         # 使用Local Attention：即causal_convolution_layer
         self.causal_input_embedding = causal_convolution_layer.context_embedding(6, feature_num, 9)
 
+    def encode_in(self, src):
+        # 对输入进行线性投影
+        src_start = self.input_projection(src).permute(1, 0, 2)  # 将原始数据的维度重新排列，将原来的维度1移到维度0的位置，将维度0移到维度1的位置，维度2保持不变
+        in_sequence_len, batch_size = src_start.size(0), src_start.size(1)
+
+        # 创建输入序列的位置编码
+        pos_encoder = (
+            torch.arange(0, in_sequence_len, device=src.device)
+            .unsqueeze(0)
+            .repeat(batch_size, 1)
+        )
+        # 对输入数据编码
+        embedding_encoder = self.input_pos_embedding(pos_encoder)
+        pos_encoder = embedding_encoder.permute(1, 0, 2)
+        # 位置信息编码
+        positional_encoding = self.input_positional_encoding(src_start)
+        # 将位置编码添加到输入序列中，并输入编码器中
+        # src = positional_encoding + pos_encoder + src_start
+        src = positional_encoding + pos_encoder
+        src = self.encoder(src) + src_start
+        return src
+
+    def decode_out(self, tgt, memory):
+        # 对输出进行线性投影
+        tgt_start = self.output_projection(tgt).permute(1, 0, 2)
+        out_sequence_len, batch_size = tgt_start.size(0), tgt_start.size(1)
+        # 创建目标序列的位置编码
+        pos_decoder = (
+            torch.arange(0, out_sequence_len, device=tgt.device)
+            .unsqueeze(0)
+            .repeat(batch_size, 1)
+        )
+        # 对输入数据嵌入编码
+        pos_decoder = self.target_pos_embedding(pos_decoder).permute(1, 0, 2)
+        # 位置信息编码
+        positional_encoding = self.input_positional_encoding(tgt_start)
+        tgt = positional_encoding + pos_decoder
+        # tgt = positional_encoding + pos_decoder + tgt_start
+        # 掩码
+        tgt_mask = transformer_generate_tgt_mask(out_sequence_len, tgt.device)
+        # 送到解码器模型中
+        out = self.decoder(tgt=tgt, memory=memory, tgt_mask=None) + tgt_start
+        out = out.permute(1, 0, 2)  # [batch_size , seq_len , d_model]
+        out = self.linear(out)
+        return out
+
     def forward(self, x):
-        x = x.permute(0, 2, 1)
-        x = self.feature_embedding(x)
-        # [B,feature_num,L]--> [B,L,feature_num]
-        x = x.transpose(-2, -1)
-        if self.use_pe:
-            x = self.position_embedding(x)
-        # [B, L, feature_num] --> [B, L, feature_num]
-        x = self.transformer_encdoer(x)
-        # [B,  L, feature_num] --> [B, feature_num,L]
-        x = x.transpose(-2, -1)
-        # [[B, feature_num,L] --> [B,out_channels,L]
-        x = self.decoder(x)
-        return x
+        target_in = x
+        # x = x.permute(0, 2, 1)
+        # x = self.feature_embedding(x)
+        # # [B,feature_num,L]--> [B,L,feature_num]
+        # x = x.transpose(-2, -1)
+        # if self.use_pe:
+        #     x = self.position_embedding(x)
+        # x = self.transformer_encdoer(x)
+        # x = x.permute(1, 0, 2)
+
+        # encoder
+        src = self.encode_in(x)
+        # decoder
+        out = self.decode_out(tgt=target_in, memory=src)
+        # x = self.decoder(x)
+        return out
 
 
-model = Transformer(in_channels=input_features, out_channels=1, feature_num=64).to(device)
+model = Transformer(in_channels=input_features, out_channels=1, feature_num=128).to(device)
 
 
 def test():
@@ -524,13 +639,14 @@ def test():
     return np.mean(val_epoch_loss)
 
 
-epochs = 80
+epochs = 50
 optimizer = torch.optim.Adam(model.parameters(), lr=0.0001)
 criterion = torch.nn.MSELoss().to(device)
 
 # 训练模型
 train_model = False
 if train_model:
+
     val_loss = []
     train_loss = []
     best_test_loss = 10000000  # 用于跟踪最佳验证损失，初始值设置为一个较大的数。
@@ -543,6 +659,7 @@ if train_model:
             targets = targets.float()
 
             outputs = model(inputs)
+            outputs = outputs.permute(0, 2, 1)
             outputs = outputs.squeeze(dim=0)
             loss = criterion(outputs.float(), targets.float())
             # 反向传播
@@ -560,7 +677,7 @@ if train_model:
             best_test_loss = val_epoch_loss
             best_model = model
             print("best_test_loss ---------------------------", best_test_loss)
-            torch.save(best_model.state_dict(), '../pth/best_Transformer_trainModel24_DEN.pth')
+            torch.save(best_model.state_dict(), '../pth/best_Transformer_trainModel28_DENSITY.pth')
 
     # 加载上一次的loss
     # train_loss = np.load('modelloss/loss.npz')['y1'].reshape(-1, 1)
@@ -584,35 +701,27 @@ if train_model:
     plt.show()
 
 # 加载模型预测
-model = Transformer(in_channels=input_features, out_channels=1, feature_num=64).to(device)
-model.load_state_dict(torch.load('../pth/best_Transformer_trainModel24_DEN.pth'))
+model = Transformer(in_channels=input_features, out_channels=1, feature_num=128).to(device)
+model.load_state_dict(torch.load('../pth/best_Transformer_trainModel28_DENSITY.pth'))
 model.to(device)
 model.eval()
 # 在对模型进行评估时，应该配合使用wit torch.nograd() 与 model.eval()
 
 # 8. 测试集预测
 with torch.no_grad():
-    # test_features = test_features[:, :, :]
-    predicted = model(test_features)
+    predicted = model(torch.FloatTensor(X).to(device))
 predicted = predicted.cpu().numpy()
-predicted1 = predicted[0, :, :].reshape(-1 , 1)
-predicted2 = predicted[:, :, -1]
-predicted = np.concatenate((predicted1 , predicted2))
-# predicted_train = predicted[:, :, 0]
-# predicted_future = predicted[-1, :, :].reshape(-1, 1)
-# predicted = np.concatenate((predicted_train, predicted_future))
-
+predicted = predicted[:, -1, :]
 # 9. 绘制真实数据和预测数据的曲线
 plt.figure(figsize=(12, 6))
-test_target_train = test_target[:, 0]
-test_target_future = test_target[-1, :]
-test_target = np.concatenate((test_target_train , test_target_future))
+test_target = y[:, -1]
 plt.plot(test_target, label='True')
 plt.plot(predicted, label='Predicted')
 plt.title('Transformer测井曲线预测')
 plt.legend()
+# plt.xlim(1900, 2900)
 # 使用savefig保存图表为文件
-plt.savefig(('../../result/transformer/experiment24_batch{}_epoch_{}.png').format(batch_size, epochs))  # 保存为PNG格式的文件
+plt.savefig(('../../result/transformer/experiment28_batch{}_epoch_{}.png').format(batch_size, epochs))  # 保存为PNG格式的文件
 plt.show()
 
 # 10. Calculate RMSE、MAPE
@@ -624,22 +733,18 @@ print("MSE", mse)  # 0.09753167668446872
 print("RMSE", rmse)  # 0.3123006190907548
 print("MAPE:", mape)  # 180.2477638456806 %
 # 创建一个txt文件并将结果写入其中
-resultpath = ('../../result/transformer/experiment24_batch{}_epoch_{}.txt').format(batch_size, epochs)
+resultpath = ('../../result/transformer/experiment28_batch{}_epoch_{}.txt').format(batch_size, epochs)
 with open(resultpath, "w") as file:
     file.write(f"MSE: {mse}\n")
     file.write(f"RMSE: {rmse}\n")
     file.write(f"MAE: {mae}\n")
     file.write(f"MAPE: {mape}\n")
 
-print("预测结果已写入experiment24_epoch_{}.txt文件")
+print("预测结果已写入experiment28_epoch_{}.txt文件")
 
 # 11. 存储预测结果
-# 反归一化
-predicted_original_data = predicted * (max_value_y - min_value_y) + min_value_y
-test_target_original_data = test_target * (max_value_y - min_value_y) + min_value_y
-file_name = '../../result/daqingyoutian_result_DEN.xlsx'
+file_name = '../../result/transformer_result.xlsx'
 # 如果文件不存在，创建一个新 Excel 文件并存储数据
-df = pd.DataFrame({'well1_DEN_predicted': predicted_original_data.flatten()})  # 创建一个新 DataFrame
-df['well1_DEN_true'] = test_target_original_data
+df = pd.DataFrame({'well3_DEN_predicted': predicted.flatten()})  # 创建一个新 DataFrame
+df['well3_DEN_true'] = test_target
 df.to_excel(file_name, index=False)  # index=False 防止写入索引列
-

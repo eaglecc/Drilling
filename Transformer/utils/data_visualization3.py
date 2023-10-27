@@ -24,8 +24,14 @@ data_DEN = pd.read_excel('../result/daqingyoutian_result_DEN.xlsx')
 data_CAL = pd.read_excel('../result/daqingyoutian_result_CAL.xlsx')
 data_GR = pd.read_excel('../result/daqingyoutian_result_GR.xlsx')
 data_SP = pd.read_excel('../result/daqingyoutian_result_SP.xlsx')
-
-
+data_lstm_DEN = pd.read_excel('../result/daqingyoutian_lstm_DEN_result.xlsx')
+data_lstm_CAL = pd.read_excel('../result/daqingyoutian_lstm_CAL_result.xlsx')
+data_lstm_GR = pd.read_excel('../result/daqingyoutian_lstm_GR_result.xlsx')
+data_lstm_SP = pd.read_excel('../result/daqingyoutian_lstm_SP_result.xlsx')
+data_gru_DEN = pd.read_excel('../result/daqingyoutian_GRU_DEN_result.xlsx')
+data_gru_CAL = pd.read_excel('../result/daqingyoutian_GRU_CAL_result.xlsx')
+data_gru_GR  = pd.read_excel('../result/daqingyoutian_GRU_GR_result.xlsx')
+data_gru_SP  = pd.read_excel('../result/daqingyoutian_GRU_SP_result.xlsx')
 
 zmin = data_y.min()
 zmax = data_y.max()
@@ -58,6 +64,8 @@ ax[2].set_yticklabels([])
 # 4. CAL
 ax[3].plot(data_x[:, 3], data_y, '-g', linewidth=0.8)
 ax[3].plot(data_CAL.well1_CAL_predicted, data_y[-len(data_CAL.well1_CAL_predicted):], '-r', linewidth=0.8)
+ax[3].plot(data_lstm_CAL.lstm_CAL_predicted, data_y[-len(data_lstm_CAL.lstm_CAL_predicted):], '-b', linewidth=0.8)
+ax[3].plot(data_gru_CAL.gru_CAL_predicted, data_y[-len(data_gru_CAL.gru_CAL_predicted):], '-k', linewidth=0.8)
 ax[3].xaxis.set_ticks_position('top')  # 设置刻度位置为上方
 ax[3].xaxis.set_label_position('top')  # 设置标签位置为上方
 ax[3].set_xlabel("CAL")
@@ -66,6 +74,8 @@ ax[3].set_yticklabels([])
 # 5. SP
 ax[4].plot(data_x[:, 4], data_y, '-g', linewidth=0.8)
 ax[4].plot(data_SP.well1_SP_predicted, data_y[-len(data_SP.well1_SP_predicted):], '-r', linewidth=0.8)
+ax[4].plot(data_lstm_SP.lstm_SP_predicted, data_y[-len(data_lstm_SP.lstm_SP_predicted):], '-b', linewidth=0.8)
+ax[4].plot(data_gru_SP.gru_SP_predicted, data_y[-len(data_gru_SP.gru_SP_predicted):], '-k', linewidth=0.8)
 ax[4].xaxis.set_ticks_position('top')  # 设置刻度位置为上方
 ax[4].xaxis.set_label_position('top')  # 设置标签位置为上方
 ax[4].set_xlabel("SP")
@@ -74,6 +84,8 @@ ax[4].set_yticklabels([])
 # 6. GR
 ax[5].plot(data_x[:, 5], data_y, '-g', linewidth=0.8)
 ax[5].plot(data_GR.well1_GR_predicted, data_y[-len(data_GR.well1_GR_predicted):], '-r', linewidth=0.8)
+ax[5].plot(data_lstm_GR.lstm_GR_predicted, data_y[-len(data_lstm_GR.lstm_GR_predicted):], '-b', linewidth=0.8)
+ax[5].plot(data_gru_GR.gru_GR_predicted, data_y[-len(data_gru_GR.gru_GR_predicted):], '-k', linewidth=0.8)
 ax[5].xaxis.set_ticks_position('top')  # 设置刻度位置为上方
 ax[5].xaxis.set_label_position('top')  # 设置标签位置为上方
 ax[5].set_xlabel("GR")
@@ -82,6 +94,8 @@ ax[5].set_yticklabels([])
 # 7. DEN
 ax[6].plot(data_x[:, 6], data_y, '-g', linewidth=0.8)
 ax[6].plot(data_DEN.well1_DEN_predicted, data_y[-len(data_DEN.well1_DEN_predicted):], '-r', linewidth=0.8)
+ax[6].plot(data_lstm_DEN.lstm_DEN_predicted, data_y[-len(data_lstm_DEN.lstm_DEN_predicted):], '-b', linewidth=0.8)
+ax[6].plot(data_gru_DEN.gru_DEN_predicted, data_y[-len(data_gru_DEN.gru_DEN_predicted):], '-k', linewidth=0.8)
 ax[6].xaxis.set_ticks_position('top')  # 设置刻度位置为上方
 ax[6].xaxis.set_label_position('top')  # 设置标签位置为上方
 ax[6].set_xlabel("DEN")
@@ -89,7 +103,7 @@ ax[6].set_yticklabels([])
 
 for i in range(len(ax)):
     # ax[i].set_ylim(zmin, zmax)  # 设置子图的x轴范围，即设置深度的上限和下限。
-    ax[i].set_ylim(1000, train_size2)  # 局部放大
+    ax[i].set_ylim(train_size1, train_size2)  # 局部放大
     ax[i].invert_yaxis()  # 反转y轴
     # ax[i].grid(True) # 添加网格
 

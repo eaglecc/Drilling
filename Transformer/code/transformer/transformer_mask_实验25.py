@@ -1,6 +1,6 @@
 """
 __author__ = 'Cheng Yuchao'
-__project__: 实验24: 钻前测井曲线预测：大庆油田数据集 A井 上 进行未来测井曲线预测 预测密度：DEN
+__project__: 实验25: 钻前测井曲线预测：大庆油田数据集 A井 上 进行未来测井曲线预测 预测GR
 __time__:  2023/10/19
 __email__:"2477721334@qq.com"
 """
@@ -27,16 +27,14 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 data = pd.read_csv('../../data/daqingyoutian/vertical_all_A1.csv')
 # data.dropna(axis=0, how='any')  #只要行中包含任何一个缺失值，就删除整行。
 data = data.fillna(0)  # 将数据中的所有缺失值替换为0
-data_x = data[['RMN-RMG', 'CAL     .cm ', 'SP      .mv  ', 'GR      .   ', 'HAC     .us/m', 'BHC     .']].values
-data_y = data['DEN     .g/cm3 '].values
+data_x = data[['RMN-RMG', 'CAL     .cm ', 'SP      .mv  ', 'DEN     .g/cm3 ', 'HAC     .us/m', 'BHC     .']].values
+data_y = data['GR      .   '].values
 input_features = 6
 
 #  Min-Max归一化
-min_value_x = data_x.min()
-max_value_x = data_x.max()
 min_value_y = data_y.min()  # 训练时y的最小值
 max_value_y = data_y.max()  # 训练时y的最大值
-data_x = (data_x - min_value_x) / (max_value_x - min_value_x)
+data_x = (data_x - data_x.min()) / (data_x.max() - data_x.min())
 data_y = (data_y - min_value_y) / (max_value_y - min_value_y)
 
 # 2. 定义回看窗口大小
@@ -524,7 +522,7 @@ def test():
     return np.mean(val_epoch_loss)
 
 
-epochs = 80
+epochs = 50
 optimizer = torch.optim.Adam(model.parameters(), lr=0.0001)
 criterion = torch.nn.MSELoss().to(device)
 
@@ -560,7 +558,7 @@ if train_model:
             best_test_loss = val_epoch_loss
             best_model = model
             print("best_test_loss ---------------------------", best_test_loss)
-            torch.save(best_model.state_dict(), '../pth/best_Transformer_trainModel24_DEN.pth')
+            torch.save(best_model.state_dict(), '../pth/best_Transformer_trainModel25_GR.pth')
 
     # 加载上一次的loss
     # train_loss = np.load('modelloss/loss.npz')['y1'].reshape(-1, 1)
@@ -585,7 +583,7 @@ if train_model:
 
 # 加载模型预测
 model = Transformer(in_channels=input_features, out_channels=1, feature_num=64).to(device)
-model.load_state_dict(torch.load('../pth/best_Transformer_trainModel24_DEN.pth'))
+model.load_state_dict(torch.load('../pth/best_Transformer_trainModel25_GR.pth'))
 model.to(device)
 model.eval()
 # 在对模型进行评估时，应该配合使用wit torch.nograd() 与 model.eval()
@@ -595,9 +593,9 @@ with torch.no_grad():
     # test_features = test_features[:, :, :]
     predicted = model(test_features)
 predicted = predicted.cpu().numpy()
-predicted1 = predicted[0, :, :].reshape(-1 , 1)
+predicted1 = predicted[0, :, :].reshape(-1, 1)
 predicted2 = predicted[:, :, -1]
-predicted = np.concatenate((predicted1 , predicted2))
+predicted = np.concatenate((predicted1, predicted2))
 # predicted_train = predicted[:, :, 0]
 # predicted_future = predicted[-1, :, :].reshape(-1, 1)
 # predicted = np.concatenate((predicted_train, predicted_future))
@@ -606,13 +604,13 @@ predicted = np.concatenate((predicted1 , predicted2))
 plt.figure(figsize=(12, 6))
 test_target_train = test_target[:, 0]
 test_target_future = test_target[-1, :]
-test_target = np.concatenate((test_target_train , test_target_future))
+test_target = np.concatenate((test_target_train, test_target_future))
 plt.plot(test_target, label='True')
 plt.plot(predicted, label='Predicted')
 plt.title('Transformer测井曲线预测')
 plt.legend()
 # 使用savefig保存图表为文件
-plt.savefig(('../../result/transformer/experiment24_batch{}_epoch_{}.png').format(batch_size, epochs))  # 保存为PNG格式的文件
+plt.savefig(('../../result/transformer/experiment25_batch{}_epoch_{}.png').format(batch_size, epochs))  # 保存为PNG格式的文件
 plt.show()
 
 # 10. Calculate RMSE、MAPE
@@ -624,22 +622,21 @@ print("MSE", mse)  # 0.09753167668446872
 print("RMSE", rmse)  # 0.3123006190907548
 print("MAPE:", mape)  # 180.2477638456806 %
 # 创建一个txt文件并将结果写入其中
-resultpath = ('../../result/transformer/experiment24_batch{}_epoch_{}.txt').format(batch_size, epochs)
+resultpath = ('../../result/transformer/experiment25_batch{}_epoch_{}.txt').format(batch_size, epochs)
 with open(resultpath, "w") as file:
     file.write(f"MSE: {mse}\n")
     file.write(f"RMSE: {rmse}\n")
     file.write(f"MAE: {mae}\n")
     file.write(f"MAPE: {mape}\n")
 
-print("预测结果已写入experiment24_epoch_{}.txt文件")
+print("预测结果已写入experiment25_epoch_{}.txt文件")
 
 # 11. 存储预测结果
 # 反归一化
 predicted_original_data = predicted * (max_value_y - min_value_y) + min_value_y
 test_target_original_data = test_target * (max_value_y - min_value_y) + min_value_y
-file_name = '../../result/daqingyoutian_result_DEN.xlsx'
+file_name = '../../result/daqingyoutian_result_GR.xlsx'
 # 如果文件不存在，创建一个新 Excel 文件并存储数据
-df = pd.DataFrame({'well1_DEN_predicted': predicted_original_data.flatten()})  # 创建一个新 DataFrame
-df['well1_DEN_true'] = test_target_original_data
+df = pd.DataFrame({'well1_GR_predicted': predicted_original_data.flatten()})  # 创建一个新 DataFrame
+df['well1_GR_true'] = test_target_original_data
 df.to_excel(file_name, index=False)  # index=False 防止写入索引列
-
