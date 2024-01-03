@@ -4,6 +4,8 @@ __project__: 实验24: 钻前测井曲线预测：大庆油田数据集 A井 上
 __time__:  2023/10/19
 __email__:"2477721334@qq.com"
 """
+
+import time
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
@@ -508,6 +510,16 @@ class Transformer(nn.Module):
 
 
 model = Transformer(in_channels=input_features, out_channels=1, feature_num=64).to(device)
+# 计算参数数量
+def count_parameters(model):
+    return sum(p.numel() for p in model.parameters() if p.requires_grad)
+num_params = count_parameters(model)
+num_params_in_k = num_params / 1000
+num_params_in_million = num_params / 1000000
+
+print(f"Number of parameters in the Transformer model: {num_params}")
+print(f"Number of parameters in the Transformer model: {num_params_in_k:.2f}K")
+print(f"Number of parameters in the Transformer model: {num_params_in_million:.3f}M")
 
 
 def test():
@@ -534,7 +546,11 @@ if train_model:
     val_loss = []
     train_loss = []
     best_test_loss = 10000000  # 用于跟踪最佳验证损失，初始值设置为一个较大的数。
+
+    total_training_time = 0.0  # 初始化总的训练时间
+
     for epoch in tqdm(range(epochs)):
+        start_time = time.time()  # 记录每个 epoch 的开始时间
         train_epoch_loss = []
         for inputs, targets in train_loader:
             inputs = torch.tensor(inputs).to(device)
@@ -555,6 +571,13 @@ if train_model:
         val_loss.append(val_epoch_loss)
         # print("epoch:", epoch, "train_epoch_loss", train_epoch_loss, "val_epoch_loss:", val_epoch_loss)
         # np.savez('modelloss/loss.npz', y1=train_loss, y2=val_loss)
+
+        # 计算并打印每个 epoch 的训练时间
+        end_time = time.time()
+        epoch_time = end_time - start_time
+        total_training_time += epoch_time
+        print(f"Epoch {epoch + 1}/{epochs}, OETT: {epoch_time:.2f} seconds")
+
         # 保存下来最好的模型
         if val_epoch_loss < best_test_loss:
             best_test_loss = val_epoch_loss
@@ -562,6 +585,8 @@ if train_model:
             print("best_test_loss ---------------------------", best_test_loss)
             torch.save(best_model.state_dict(), '../pth/best_Transformer_trainModel24_DEN.pth')
 
+    # 打印总时间
+    print(f"Total training time: {total_training_time:.2f} seconds")
     # 加载上一次的loss
     # train_loss = np.load('modelloss/loss.npz')['y1'].reshape(-1, 1)
     # val_loss = np.load('modelloss/loss.npz')['y2'].reshape(-1, 1)
@@ -601,12 +626,15 @@ predicted = np.concatenate((predicted1 , predicted2))
 # predicted_train = predicted[:, :, 0]
 # predicted_future = predicted[-1, :, :].reshape(-1, 1)
 # predicted = np.concatenate((predicted_train, predicted_future))
+# predicted = predicted[:, :, 0]
 
 # 9. 绘制真实数据和预测数据的曲线
 plt.figure(figsize=(12, 6))
 test_target_train = test_target[:, 0]
 test_target_future = test_target[-1, :]
 test_target = np.concatenate((test_target_train , test_target_future))
+
+# test_target = test_target[:, 0]
 plt.plot(test_target, label='True')
 plt.plot(predicted, label='Predicted')
 plt.title('Transformer测井曲线预测')
@@ -616,22 +644,22 @@ plt.savefig(('../../result/transformer/experiment24_batch{}_epoch_{}.png').forma
 plt.show()
 
 # 10. Calculate RMSE、MAPE
-mse = np.mean((test_target - predicted) ** 2)
-rmse = np.sqrt(np.mean((test_target - predicted) ** 2))
-mae = np.mean(np.abs(test_target - predicted))
-mape = np.mean(np.abs((test_target - predicted) / test_target))
-print("MSE", mse)  # 0.09753167668446872
-print("RMSE", rmse)  # 0.3123006190907548
-print("MAPE:", mape)  # 180.2477638456806 %
-# 创建一个txt文件并将结果写入其中
-resultpath = ('../../result/transformer/experiment24_batch{}_epoch_{}.txt').format(batch_size, epochs)
-with open(resultpath, "w") as file:
-    file.write(f"MSE: {mse}\n")
-    file.write(f"RMSE: {rmse}\n")
-    file.write(f"MAE: {mae}\n")
-    file.write(f"MAPE: {mape}\n")
-
-print("预测结果已写入experiment24_epoch_{}.txt文件")
+# mse = np.mean((test_target - predicted) ** 2)
+# rmse = np.sqrt(np.mean((test_target - predicted) ** 2))
+# mae = np.mean(np.abs(test_target - predicted))
+# mape = np.mean(np.abs((test_target - predicted) / test_target))
+# print("MSE", mse)  # 0.09753167668446872
+# print("RMSE", rmse)  # 0.3123006190907548
+# print("MAPE:", mape)  # 180.2477638456806 %
+# # 创建一个txt文件并将结果写入其中
+# resultpath = ('../../result/transformer/experiment24_batch{}_epoch_{}.txt').format(batch_size, epochs)
+# with open(resultpath, "w") as file:
+#     file.write(f"MSE: {mse}\n")
+#     file.write(f"RMSE: {rmse}\n")
+#     file.write(f"MAE: {mae}\n")
+#     file.write(f"MAPE: {mape}\n")
+#
+# print("预测结果已写入experiment24_epoch_{}.txt文件")
 
 # 11. 存储预测结果
 # 反归一化

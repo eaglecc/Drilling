@@ -6,6 +6,7 @@ __project__:
 __time__:  2023/11/2
 __email__:"2477721334@qq.com"
 """
+import time
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
@@ -606,10 +607,21 @@ class Transformer(nn.Module):
         # x = self.decoder(x)
         return out
 
-
 model = Transformer(in_channels=input_features, out_channels=1, feature_num=128).to(device)
 
+# 计算参数数量
+def count_parameters(model):
+    return sum(p.numel() for p in model.parameters() if p.requires_grad)
+num_params = count_parameters(model)
+num_params_in_k = num_params / 1000
+num_params_in_million = num_params / 1000000
 
+print(f"Number of parameters in the Transformer model: {num_params}")
+print(f"Number of parameters in the Transformer model: {num_params_in_k:.2f}K")
+print(f"Number of parameters in the Transformer model: {num_params_in_million:.3f}M")
+
+
+# Number of parameters in the Transformer model: 4501481
 def test():
     with torch.no_grad():
         val_epoch_loss = []
@@ -629,12 +641,16 @@ optimizer = torch.optim.Adam(model.parameters(), lr=0.0001)
 criterion = torch.nn.MSELoss().to(device)
 
 # 训练模型
-train_model = False
+train_model = True
 if train_model:
     val_loss = []
     train_loss = []
     best_test_loss = 10000000  # 用于跟踪最佳验证损失，初始值设置为一个较大的数。
+
+    total_training_time = 0.0  # 初始化总的训练时间
+
     for epoch in tqdm(range(epochs)):
+        start_time = time.time()  # 记录每个 epoch 的开始时间
         train_epoch_loss = []
         for inputs, targets in train_loader:
             inputs = torch.tensor(inputs).to(device)
@@ -655,6 +671,13 @@ if train_model:
         val_loss.append(val_epoch_loss)
         # print("epoch:", epoch, "train_epoch_loss", train_epoch_loss, "val_epoch_loss:", val_epoch_loss)
         # np.savez('modelloss/loss.npz', y1=train_loss, y2=val_loss)
+
+        # 计算并打印每个 epoch 的训练时间
+        end_time = time.time()
+        epoch_time = end_time - start_time
+        total_training_time += epoch_time
+        print(f"Epoch {epoch + 1}/{epochs}, OETT: {epoch_time:.2f} seconds")
+
         # 保存下来最好的模型
         if val_epoch_loss < best_test_loss:
             best_test_loss = val_epoch_loss

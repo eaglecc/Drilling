@@ -29,7 +29,7 @@ max_value = data_y.max().max()
 train_size1 = int(0.95 * (max_value - min_value) + min_value)
 train_size2 = int(1 * (max_value - min_value) + min_value)
 
-f, ax = plt.subplots(nrows=1, ncols=5, figsize=(8, 12))
+f, ax = plt.subplots(nrows=1, ncols=7, figsize=(8, 12))
 # 1. RMN-RMG
 ax[0].plot(data_x[:, 0], data_y, '-g', linewidth=0.8)
 ax[0].xaxis.set_ticks_position('top')  # 设置刻度位置为上方
@@ -37,21 +37,21 @@ ax[0].xaxis.set_label_position('top')  # 设置标签位置为上方
 ax[0].set_xlabel("RMN-RMG")
 
 # 2. HAC
-ax[1].plot(data_x[:, 1], data_y, '-g', linewidth=0.8)
+ax[1].plot(data_x[:, 1], data_y, '-b', linewidth=0.8)
 ax[1].xaxis.set_ticks_position('top')  # 设置刻度位置为上方
 ax[1].xaxis.set_label_position('top')  # 设置标签位置为上方
 ax[1].set_xlabel("HAC")
 ax[1].set_yticklabels([])
 
 # 3. BHC
-ax[2].plot(data_x[:, 2], data_y, '-g', linewidth=0.8)
+ax[2].plot(data_x[:, 2], data_y, '-b', linewidth=0.8)
 ax[2].xaxis.set_ticks_position('top')  # 设置刻度位置为上方
 ax[2].xaxis.set_label_position('top')  # 设置标签位置为上方
 ax[2].set_xlabel("BHC")
 ax[2].set_yticklabels([])
 
 # 4. CAL
-ax[3].plot(data_x[:, 3], data_y, '-g', linewidth=0.8)
+ax[3].plot(data_x[:, 3], data_y, '-b', linewidth=0.8)
 ax[3].xaxis.set_ticks_position('top')  # 设置刻度位置为上方
 ax[3].xaxis.set_label_position('top')  # 设置标签位置为上方
 ax[3].set_xlabel("CAL")
@@ -64,19 +64,19 @@ ax[4].xaxis.set_label_position('top')  # 设置标签位置为上方
 ax[4].set_xlabel("SP")
 ax[4].set_yticklabels([])
 #
-# # 6. GR
-# ax[5].plot(data_x[:, 5], data_y, '-g', linewidth=0.8)
-# ax[5].xaxis.set_ticks_position('top')  # 设置刻度位置为上方
-# ax[5].xaxis.set_label_position('top')  # 设置标签位置为上方
-# ax[5].set_xlabel("GR")
-# ax[5].set_yticklabels([])
+# 6. GR
+ax[5].plot(data_x[:, 5], data_y, '-b', linewidth=0.8)
+ax[5].xaxis.set_ticks_position('top')  # 设置刻度位置为上方
+ax[5].xaxis.set_label_position('top')  # 设置标签位置为上方
+ax[5].set_xlabel("GR")
+ax[5].set_yticklabels([])
 #
-# # 7. DEN
-# ax[6].plot(data_x[:, 6], data_y, '-g', linewidth=0.8)
-# ax[6].xaxis.set_ticks_position('top')  # 设置刻度位置为上方
-# ax[6].xaxis.set_label_position('top')  # 设置标签位置为上方
-# ax[6].set_xlabel("DEN")
-# ax[6].set_yticklabels([])
+# 7. DEN
+ax[6].plot(data_x[:, 6], data_y, '-b', linewidth=0.8)
+ax[6].xaxis.set_ticks_position('top')  # 设置刻度位置为上方
+ax[6].xaxis.set_label_position('top')  # 设置标签位置为上方
+ax[6].set_xlabel("DEN")
+ax[6].set_yticklabels([])
 
 for i in range(len(ax)):
     ax[i].set_ylim(zmin, zmax)  # 设置子图的x轴范围，即设置深度的上限和下限。
@@ -85,5 +85,5 @@ for i in range(len(ax)):
     ax[i].invert_yaxis()  # 反转y轴
     # ax[i].grid(True) # 添加网格
 
-f.suptitle('C井密度预测', fontsize=14, y=0.94)
+f.suptitle('大庆油田A井测井曲线', fontsize=14, y=0.94)
 plt.show()

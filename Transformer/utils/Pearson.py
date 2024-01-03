@@ -21,6 +21,7 @@ data = pd.read_csv('../data/Well3_EPOR0_1.csv')
 data_x = data[['DEPTH', 'GR', 'NPHI', 'DENSITY', 'PEF', 'LITH', 'VSHALE', 'DPHI', 'EPOR0']]
 data_y = data['DEPTH']
 
+
 correlation_matrix = data_x.corr()
 
 plt.figure(figsize=(10, 8))

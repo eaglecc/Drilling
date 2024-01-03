@@ -1,6 +1,6 @@
 """
 __author__ = 'Cheng Yuchao'
-__project__: 大庆油田 可视化
+__project__: 大庆油田 可视化  A井数据上对比LSTM、GRU、TRansformer
 __time__:  2023/10/25
 __email__:"2477721334@qq.com"
 """
@@ -41,7 +41,7 @@ zmin = data_y.min()
 zmax = data_y.max()
 min_value = data_y.min().min()
 max_value = data_y.max().max()
-train_size1 = int(0.95 * (max_value - min_value) + min_value)
+train_size1 = int(0.80 * (max_value - min_value) + min_value)
 train_size2 = int(1 * (max_value - min_value) + min_value)
 
 f, ax = plt.subplots(nrows=1, ncols=7, figsize=(8, 12))
@@ -116,7 +116,7 @@ for i in range(len(ax)):
     ax[i].invert_yaxis()  # 反转y轴
     # ax[i].grid(True) # 添加网格
 
-f.suptitle('C井密度预测', fontsize=14, y=0.94)
+# f.suptitle('C井密度预测', fontsize=14, y=0.94)
 plt.show()
 
 # WLP-Transformer技术评价指标

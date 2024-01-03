@@ -6,6 +6,7 @@ __project__:
 __time__:  2023/11/2
 __email__:"2477721334@qq.com"
 """
+import time
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
@@ -507,15 +508,7 @@ class Transformer(nn.Module):
         """
         # 调用父类的构造函数
         super(Transformer, self).__init__()
-        self.feature_embedding = Input_Embedding(in_channels=in_channels, feature_num=feature_num, res_num=res_num)
-        # self.position_embedding = PositionalEncoding(d_model=dim, dropout=position_drop, seq_len=seq_len)
         self.use_pe = use_pe
-        self.transformer_encdoer = TransformerBlock(block_num=4, dim=dim, num_heads=num_heads,
-                                                    mlp_ratio=mlp_ratio, qkv_bias=qkv_bias, drop=drop,
-                                                    attn_drop=attn_drop,
-                                                    act_layer=act_layer, norm_layer=norm_layer)
-        # self.decoder = Decoder(out_channels=out_channels, feature_num=feature_num, res_num=res_num)
-
         # 位置编码层
         self.input_positional_encoding = PositionalEncoding(dim, max_len=look_back)
         self.target_positional_encoding = PositionalEncoding(dim, max_len=look_back)
@@ -537,8 +530,6 @@ class Transformer(nn.Module):
         self.decoder = torch.nn.TransformerDecoder(decoder_layer, num_layers=4)
         self.linear = torch.nn.Linear(dim, 1)
         self.fc = nn.Linear(look_back, future_window)
-        # 使用Local Attention：即causal_convolution_layer
-        self.causal_input_embedding = causal_convolution_layer.context_embedding(6, feature_num, 9)
 
     def encode_in(self, src):
         # 对输入进行线性投影
@@ -589,15 +580,6 @@ class Transformer(nn.Module):
 
     def forward(self, x):
         target_in = x
-        # x = x.permute(0, 2, 1)
-        # x = self.feature_embedding(x)
-        # # [B,feature_num,L]--> [B,L,feature_num]
-        # x = x.transpose(-2, -1)
-        # if self.use_pe:
-        #     x = self.position_embedding(x)
-        # x = self.transformer_encdoer(x)
-        # x = x.permute(1, 0, 2)
-
         # encoder
         src = self.encode_in(x)
         # decoder
@@ -607,6 +589,17 @@ class Transformer(nn.Module):
 
 
 model = Transformer(in_channels=input_features, out_channels=1, feature_num=128).to(device)
+
+# 计算参数数量
+def count_parameters(model):
+    return sum(p.numel() for p in model.parameters() if p.requires_grad)
+num_params = count_parameters(model)
+num_params_in_k = num_params / 1000
+num_params_in_million = num_params / 1000000
+
+print(f"Number of parameters in the Transformer model: {num_params}")
+print(f"Number of parameters in the Transformer model: {num_params_in_k:.2f}K")
+print(f"Number of parameters in the Transformer model: {num_params_in_million:.3f}M")
 
 
 def test():
@@ -628,13 +621,17 @@ optimizer = torch.optim.Adam(model.parameters(), lr=0.0001)
 criterion = torch.nn.MSELoss().to(device)
 
 # 训练模型
-train_model = False
+train_model = True
 if train_model:
     val_loss = []
     train_loss = []
     best_test_loss = 10000000  # 用于跟踪最佳验证损失，初始值设置为一个较大的数。
+    total_training_time = 0.0  # 初始化总的训练时间
+
     for epoch in tqdm(range(epochs)):
         train_epoch_loss = []
+        start_time = time.time()  # 记录每个 epoch 的开始时间
+
         for inputs, targets in train_loader:
             inputs = torch.tensor(inputs).to(device)
             targets = torch.tensor(targets).to(device)
@@ -654,12 +651,19 @@ if train_model:
         val_loss.append(val_epoch_loss)
         # print("epoch:", epoch, "train_epoch_loss", train_epoch_loss, "val_epoch_loss:", val_epoch_loss)
         # np.savez('modelloss/loss.npz', y1=train_loss, y2=val_loss)
+
+        # 计算并打印每个 epoch 的训练时间
+        end_time = time.time()
+        epoch_time = end_time - start_time
+        total_training_time += epoch_time
+        print(f"Epoch {epoch + 1}/{epochs}, OETT: {epoch_time:.2f} seconds")
+
         # 保存下来最好的模型
         if val_epoch_loss < best_test_loss:
             best_test_loss = val_epoch_loss
             best_model = model
             print("best_test_loss ---------------------------", best_test_loss)
-            torch.save(best_model.state_dict(), '../pth/best_Transformer_trainModel33_DEN.pth')
+            torch.save(best_model.state_dict(), '../pth/best_Transformer_trainModel33_test_DEN.pth')
 
     # 加载上一次的loss
     # train_loss = np.load('modelloss/loss.npz')['y1'].reshape(-1, 1)
@@ -684,7 +688,7 @@ if train_model:
 
 # 加载模型预测
 model = Transformer(in_channels=input_features, out_channels=1, feature_num=128).to(device)
-model.load_state_dict(torch.load('../pth/best_Transformer_trainModel33_DEN.pth'))
+model.load_state_dict(torch.load('../pth/best_Transformer_trainModel33_test_DEN.pth'))
 model.to(device)
 model.eval()
 # 在对模型进行评估时，应该配合使用wit torch.nograd() 与 model.eval()
