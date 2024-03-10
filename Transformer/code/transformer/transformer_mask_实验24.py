@@ -1,6 +1,8 @@
 """
 __author__ = 'Cheng Yuchao'
-__project__: 实验24: 钻前测井曲线预测：大庆油田数据集 A井 上 进行未来测井曲线预测 预测密度：DEN
+__project__: 实验24:
+WLP-Transformer
+钻前测井曲线预测：大庆油田数据集 A井 上 进行未来测井曲线预测 预测密度：DEN
 __time__:  2023/10/19
 __email__:"2477721334@qq.com"
 """
@@ -620,12 +622,12 @@ with torch.no_grad():
     # test_features = test_features[:, :, :]
     predicted = model(test_features)
 predicted = predicted.cpu().numpy()
-predicted1 = predicted[0, :, :].reshape(-1 , 1)
-predicted2 = predicted[:, :, -1]
-predicted = np.concatenate((predicted1 , predicted2))
-# predicted_train = predicted[:, :, 0]
-# predicted_future = predicted[-1, :, :].reshape(-1, 1)
-# predicted = np.concatenate((predicted_train, predicted_future))
+
+# predicted1 = predicted[0, :, :].reshape(-1 , 1)
+# predicted2 = predicted[:, :, -1]
+predicted_train = predicted[:, :, 0]
+predicted_future = predicted[-1, :, :].reshape(-1, 1)
+predicted = np.concatenate((predicted_train, predicted_future))
 # predicted = predicted[:, :, 0]
 
 # 9. 绘制真实数据和预测数据的曲线

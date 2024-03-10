@@ -659,8 +659,10 @@ model.eval()
 with torch.no_grad():
     predicted = model(test_features)
 predicted = predicted.cpu().numpy()
-predicted1 = predicted[0, :, :].reshape(-1, 1)
-predicted2 = predicted[:, :, -1]
+# predicted1 = predicted[0, :, :].reshape(-1, 1)
+# predicted2 = predicted[:, :, -1]
+predicted1 = predicted[:, :, 0]
+predicted2 = predicted[-1, :, :].reshape(-1, 1)
 predicted = np.concatenate((predicted1, predicted2))
 
 # 9. 绘制真实数据和预测数据的曲线

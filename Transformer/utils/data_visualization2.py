@@ -69,7 +69,6 @@ ax[1].set_yticklabels([])
 # 3. lstm测井曲线
 ax[2].plot(data_lstm.lstm_DENSITY_predicted, data_y[80:], '-r', linewidth=1)
 ax[2].plot(data_lstm.lstm_DENSITY_true, data_y[80:], '-g', linewidth=1)
-ax[2].xaxis.set_ticks_position('top')  # 设置刻度位置为上方
 ax[2].xaxis.set_label_position('top')  # 设置标签位置为上方
 ax[2].set_xlabel("LSTM")
 ax[2].set_yticklabels([])

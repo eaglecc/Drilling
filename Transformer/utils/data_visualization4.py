@@ -16,10 +16,9 @@ plt.rcParams['font.sans-serif'] = ['SimHei']  # 图例中显示中文
 plt.rcParams['axes.unicode_minus'] = False  # 用来正常显示负号
 
 # 导入数据
-data = pd.read_csv('../data/daqingyoutian/vertical_all_A1.csv')
-data_x = data[['RMN-RMG',  'HAC     .us/m', 'BHC     .','CAL     .cm ', 'SP      .mv  ', 'GR      .   ',
-               'DEN     .g/cm3 ']].values
-data_y = data['DEPT    .M ']
+data = pd.read_csv('../data/daqingyoutian/vertical_all_A3.csv')
+data_x = data[['RMN-RMG',  'HAC     .us/m', 'BHC     .','CAL     .cm', 'SP      .mv', 'GR      .','DEN     .g/cm3']].values
+data_y = data['DEPT    .M']
 
 
 zmin = data_y.min()
@@ -31,7 +30,7 @@ train_size2 = int(1 * (max_value - min_value) + min_value)
 
 f, ax = plt.subplots(nrows=1, ncols=7, figsize=(8, 12))
 # 1. RMN-RMG
-ax[0].plot(data_x[:, 0], data_y, '-g', linewidth=0.8)
+ax[0].plot(data_x[:, 0], data_y, '-b', linewidth=0.8)
 ax[0].xaxis.set_ticks_position('top')  # 设置刻度位置为上方
 ax[0].xaxis.set_label_position('top')  # 设置标签位置为上方
 ax[0].set_xlabel("RMN-RMG")
@@ -85,5 +84,5 @@ for i in range(len(ax)):
     ax[i].invert_yaxis()  # 反转y轴
     # ax[i].grid(True) # 添加网格
 
-f.suptitle('大庆油田A井测井曲线', fontsize=14, y=0.94)
+f.suptitle('大庆油田C井测井曲线', fontsize=14, y=0.94)
 plt.show()

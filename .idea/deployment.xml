@@ -1,11 +1,32 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
-  <component name="PublishConfigData" autoUpload="Always" serverName="root@connect.westb.seetacloud.com:17539 password" remoteFilesAllowedToDisappearOnAutoupload="false">
+  <component name="PublishConfigData" autoUpload="Always" serverName="root@connect.westb.seetacloud.com:45401 password" remoteFilesAllowedToDisappearOnAutoupload="false">
     <serverData>
+      <paths name="root@connect.bjb1.seetacloud.com:12508 password">
+        <serverdata>
+          <mappings>
+            <mapping deploy="/root/autodl-tmp/drill" local="$PROJECT_DIR$" />
+          </mappings>
+        </serverdata>
+      </paths>
+      <paths name="root@connect.bjb1.seetacloud.com:40576 password">
+        <serverdata>
+          <mappings>
+            <mapping deploy="/root/autodl-tmp/drill" local="$PROJECT_DIR$" />
+          </mappings>
+        </serverdata>
+      </paths>
       <paths name="root@connect.westb.seetacloud.com:17539 password">
         <serverdata>
           <mappings>
             <mapping deploy="/root/autodl-tmp/Drilling" local="$PROJECT_DIR$" />
+          </mappings>
+        </serverdata>
+      </paths>
+      <paths name="root@connect.westb.seetacloud.com:22037 password">
+        <serverdata>
+          <mappings>
+            <mapping deploy="/root/autodl-tmp/drill" local="$PROJECT_DIR$" />
           </mappings>
         </serverdata>
       </paths>
@@ -16,10 +37,31 @@
           </mappings>
         </serverdata>
       </paths>
+      <paths name="root@connect.westb.seetacloud.com:45401 password">
+        <serverdata>
+          <mappings>
+            <mapping deploy="/root/autodl-tmp/drill" local="$PROJECT_DIR$" />
+          </mappings>
+        </serverdata>
+      </paths>
       <paths name="root@onnect.westb.seetacloud.com:23148 password">
         <serverdata>
           <mappings>
             <mapping deploy="/root/autodl-tmp/Drilling" local="$PROJECT_DIR$" />
+          </mappings>
+        </serverdata>
+      </paths>
+      <paths name="root@region-3.seetacloud.com:44685 password">
+        <serverdata>
+          <mappings>
+            <mapping deploy="/root/autodl-tmp/drill" local="$PROJECT_DIR$" />
+          </mappings>
+        </serverdata>
+      </paths>
+      <paths name="root@region-42.seetacloud.com:29323 password">
+        <serverdata>
+          <mappings>
+            <mapping deploy="/root/autodl-tmp/drill" local="$PROJECT_DIR$" />
           </mappings>
         </serverdata>
       </paths>
