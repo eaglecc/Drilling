@@ -113,7 +113,7 @@ optimizer = optim.Adam(model.parameters(), lr=0.001)
 #     print(f'Epoch [{epoch + 1}/{num_epochs}], Loss: {loss.item():.4f}')
 
 # 7.2 分batchsize进行训练
-num_epochs = 20
+num_epochs = 80
 for epoch in range(num_epochs):
     for batch_features, batch_target in train_loader:
         # 将批次数据移到GPU上（如果可用）

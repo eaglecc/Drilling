@@ -544,12 +544,12 @@ def test():
     return np.mean(val_epoch_loss)
 
 
-epochs = 15
+epochs = 5
 optimizer = torch.optim.Adam(model.parameters(), lr=0.0001)
 criterion = torch.nn.MSELoss().to(device)
 
 # 训练模型
-train_model = False
+train_model = True
 if train_model:
     val_loss = []
     train_loss = []

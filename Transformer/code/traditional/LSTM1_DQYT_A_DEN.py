@@ -106,7 +106,7 @@ output_size = 1
 # 6.创建LSTM模型、定义损失函数和优化器
 model = LSTMModel(input_size, hidden_size, num_layers, output_size).to(device)
 criterion = nn.MSELoss()
-optimizer = optim.Adam(model.parameters(), lr=0.001)
+optimizer = optim.Adam(model.parameters(), lr=0.0001)
 
 # 7. 训练模型
 # 7.1 不分batchsize进行训练
@@ -122,7 +122,7 @@ optimizer = optim.Adam(model.parameters(), lr=0.001)
 #     optimizer.step()
 #     print(f'Epoch [{epoch + 1}/{num_epochs}], Loss: {loss.item():.4f}')
 # 7.2 分batchsize进行训练
-num_epochs = 20
+num_epochs = 60
 for epoch in range(num_epochs):
     for batch_features, batch_target in train_loader:
         # 将批次数据移到GPU上（如果可用）

@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
-  <component name="PublishConfigData" autoUpload="Always" serverName="root@connect.westb.seetacloud.com:45401 password" remoteFilesAllowedToDisappearOnAutoupload="false">
+  <component name="PublishConfigData" autoUpload="Always" serverName="root@connect.southb.gpuhub.com:18509 password" remoteFilesAllowedToDisappearOnAutoupload="false">
     <serverData>
       <paths name="root@connect.bjb1.seetacloud.com:12508 password">
         <serverdata>
@@ -10,6 +10,13 @@
         </serverdata>
       </paths>
       <paths name="root@connect.bjb1.seetacloud.com:40576 password">
+        <serverdata>
+          <mappings>
+            <mapping deploy="/root/autodl-tmp/drill" local="$PROJECT_DIR$" />
+          </mappings>
+        </serverdata>
+      </paths>
+      <paths name="root@connect.southb.gpuhub.com:18509 password">
         <serverdata>
           <mappings>
             <mapping deploy="/root/autodl-tmp/drill" local="$PROJECT_DIR$" />
