@@ -31,7 +31,7 @@ torch.cuda.empty_cache()
 data = pd.read_csv('../../data/daqingyoutian/vertical_all_A1.csv')
 # data.dropna(axis=0, how='any')  #只要行中包含任何一个缺失值，就删除整行。
 data = data.fillna(0)  # 将数据中的所有缺失值替换为0
-#data_x = data[['RMN-RMG', 'HAC     .us/m','GR      .   ', 'SP      .mv  ',  'CAL     .cm ', 'DEN     .g/cm3 ']].values
+# data_x = data[['RMN-RMG', 'HAC     .us/m','GR      .   ', 'SP      .mv  ',  'CAL     .cm ', 'DEN     .g/cm3 ']].values
 data_x = data[['RMN-RMG', 'HAC     .us/m' ,'SP      .mv  ',  'CAL     .cm ']].values
 data_y = data['BHC     .'].values
 input_features = 4
@@ -72,7 +72,7 @@ train_target = torch.FloatTensor(train_target).to(device)
 test_features = torch.FloatTensor(test_features).to(device)
 
 # 定义批次大小
-batch_size = 8  # 可以根据需求调整
+batch_size = 32  # 可以根据需求调整
 
 # 使用DataLoader创建数据加载器
 train_dataset = torch.utils.data.TensorDataset(train_features, train_target)
@@ -110,7 +110,7 @@ optimizer = optim.Adam(model.parameters(), lr=0.001)
 
 # 7. 训练模型
 # 7.1 不分batchsize进行训练
-# num_epochs = 200
+# num_epochs = 100
 # for epoch in range(num_epochs):
 #     # 前向传播
 #     outputs = model(train_features)
@@ -122,7 +122,7 @@ optimizer = optim.Adam(model.parameters(), lr=0.001)
 #     optimizer.step()
 #     print(f'Epoch [{epoch + 1}/{num_epochs}], Loss: {loss.item():.4f}')
 # 7.2 分batchsize进行训练
-num_epochs = 80
+num_epochs = 20
 for epoch in range(num_epochs):
     for batch_features, batch_target in train_loader:
         # 将批次数据移到GPU上（如果可用）
@@ -146,13 +146,11 @@ predicted = predicted.cpu().numpy()
 # predicted2 = predicted[: , -1]
 # predicted = np.concatenate((predicted1, predicted2))
 predicted1 = predicted[:, 0]
-
 pred = predicted[0, :]
 # predicted2 = predicted[-1, :]
 # predicted = np.concatenate((predicted1 , predicted2))
 
 test_target_train = test_target[:, 0]
-
 test2 = test_target[0, :]
 
 # test_target_future = test_target[-1, :]
@@ -168,19 +166,19 @@ plt.legend()
 # print("图片已经存储至：../../result/lstm/")
 plt.show()
 
-# 10. 计算深度
-data_depth = data[['DEPT    .M ','DEN     .g/cm3 ']].values
-data_depth = data_depth[look_back:]
-data_depth = data_depth[:-future_window]
-data_depth = data_depth[train_size - 1:]
-
-# 11. 存储预测结果
-# 反归一化
-predicted_original_data = predicted1 * (max_value_y - min_value_y) + min_value_y
-test_target_original_data = test_target_train * (max_value_y - min_value_y) + min_value_y
-file_name = '../../result/wlp_transformer/daqingyoutian_A_lstm_BHC_result.xlsx'
-# 如果文件不存在，创建一个新 Excel 文件并存储数据
-df = pd.DataFrame({'depth': data_depth[:,0]})  # 创建一个新 DataFrame
-df['lstm_BHC_predicted'] = predicted_original_data
-df['lstm_BHC_true'] = test_target_original_data.flatten()
-df.to_excel(file_name, index=False)  # index=False 防止写入索引列
+# # 10. 计算深度
+# data_depth = data[['DEPT    .M ','DEN     .g/cm3 ']].values
+# data_depth = data_depth[look_back:]
+# data_depth = data_depth[:-future_window]
+# data_depth = data_depth[train_size - 1:]
+#
+# # 11. 存储预测结果
+# # 反归一化
+# predicted_original_data = predicted1 * (max_value_y - min_value_y) + min_value_y
+# test_target_original_data = test_target_train * (max_value_y - min_value_y) + min_value_y
+# file_name = '../../result/wlp_transformer/daqingyoutian_A_lstm_BHC_result.xlsx'
+# # 如果文件不存在，创建一个新 Excel 文件并存储数据
+# df = pd.DataFrame({'depth': data_depth[:,0]})  # 创建一个新 DataFrame
+# df['lstm_BHC_predicted'] = predicted_original_data
+# df['lstm_BHC_true'] = test_target_original_data.flatten()
+# df.to_excel(file_name, index=False)  # index=False 防止写入索引列

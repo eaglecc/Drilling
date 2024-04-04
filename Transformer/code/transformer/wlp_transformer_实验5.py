@@ -2,7 +2,7 @@
 __author__ = 'Cheng Yuchao'
 __project__: 实验5:
 WLP-Transformer
-缺失测井曲线预测：大庆油田数据集 A井 上 进行未来测井曲线预测 预测密度：DEN
+缺失测井曲线预测：大庆油田数据集 A井 上 进行测井曲线预测 预测密度：DEN
 __time__:  2024/3/1
 __email__:"2477721334@qq.com"
 """
@@ -556,7 +556,7 @@ optimizer = torch.optim.Adam(model.parameters(), lr=0.0001)
 criterion = torch.nn.MSELoss().to(device)
 
 # 训练模型
-train_model = True
+train_model = False
 if train_model:
     val_loss = []
     train_loss = []

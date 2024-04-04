@@ -2,7 +2,7 @@
 __author__ = 'Cheng Yuchao'
 __project__: 实验6:
 WLP-Transformer
-缺失测井曲线预测：大庆油田数据集 A井 上 进行未来测井曲线预测 预测密度：BHC
+缺失测井曲线预测：大庆油田数据集 A井 上 进行测井曲线预测 预测密度：BHC
 __time__:  2024/3/1
 __email__:"2477721334@qq.com"
 """
@@ -676,7 +676,7 @@ file_name = '../../result/wlp_transformer/daqingyoutian_result缺失_BHC.xlsx'
 # 如果文件不存在，创建一个新 Excel 文件并存储数据
 
 df = pd.DataFrame()  # 创建一个新 DataFrame
-df['well1_DEN_true'] = test_target_original_data
-df['well1_DEN_predicted'] = predicted_original_data.flatten()
+df['well1_BHC_true'] = test_target_original_data
+df['well1_BHC_predicted'] = predicted_original_data.flatten()
 df.to_excel(file_name, index=False)  # index=False 防止写入索引列
 
