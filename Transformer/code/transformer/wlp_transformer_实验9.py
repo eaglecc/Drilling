@@ -30,7 +30,7 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 # 1. 导入数据
 data = pd.read_csv('../../data/daqingyoutian/vertical_all_A1.csv')
 data = data.fillna(0)  # 将数据中的所有缺失值替换为0
-data_x = data[['RMN-RMG', 'HAC     .us/m','GR      .   ',  'CAL     .cm ']].values
+data_x = data[['SP      .mv  ', 'GR      .   ', 'HAC     .us/m', 'BHC     .']].values
 data_y = data['DEN     .g/cm3 '].values
 input_features = 4
 
@@ -94,91 +94,8 @@ def transformer_generate_tgt_mask(length, device):
     )
     return mask
 
-
-class Input_Embedding(nn.Module):
-    def __init__(self, in_channels=1, res_num=4, feature_num=128):
-        """
-        Input_Embedding layer
-        Args:
-            in_channels: (int) input channels
-            res_num: (int) resnet block number
-            feature_num: (int) high-level feature number
-        """
-        super().__init__()
-        # lstm
-        self.lstm = nn.LSTM(input_features, feature_num, 1, batch_first=True)
-        self.dropout = nn.Dropout(p=0.3)
-        # cnn + rescnn
-        self.conv1 = nn.Sequential(
-            # nn.Conv1d(in_channels=in_channels, out_channels=in_channels, kernel_size=7, padding=3, stride=1),
-            nn.Conv1d(in_channels=in_channels, out_channels=feature_num, kernel_size=7, padding=3, stride=1),
-            # nn.BatchNorm1d(feature_num),
-            nn.ReLU()
-        )
-        self.rescnn = nn.ModuleList(
-            [ResCNN(in_channels=feature_num, out_channels=feature_num, kernel_size=7, padding=3, stride=1) for i
-             in range(res_num)])
-
-    def forward(self, x):
-        """
-        conv1: [B,C,L]-->[B,feature_num,L]
-        rescnn:[B,feature_num,L]-->[B,feature_num,L]
-        Args:
-            x:input sequence,shape[B,C,L] B:batch size，C：input channels,default=1，L:sequence len
-
-        Returns:
-            x:[B,feature_num,L]
-        """
-        x = self.conv1(x)  # conv1: [B,C,L]-->[B,feature_num,L]
-
-        # lstm层
-        # x = x.permute(0, 2, 1)
-        # x, _ = self.lstm(x)  # （3050，50，6）-->（3050，50，64）
-        # x = self.dropout(x)
-        # x = x.permute(0, 2, 1)
-
-        # for model in self.rescnn:  # rescnn:[B,feature_num,L]-->[B,feature_num,L]
-        #     x = model(x)
-        return x
-
-
-class ResCNN(nn.Module):
-    def __init__(self, in_channels, out_channels, kernel_size, padding, stride):
-        """
-        Args:
-            in_channels: (int)
-            out_channels: (int)
-            kernel_size: (int)
-            padding: (int)
-            stride: (int)
-        """
-        super().__init__()
-        self.conv = nn.Sequential(
-            nn.Conv1d(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size, padding=padding,
-                      stride=stride),
-            nn.BatchNorm1d(out_channels),
-            nn.ReLU(),
-            nn.Conv1d(in_channels=out_channels, out_channels=out_channels, kernel_size=kernel_size, padding=padding,
-                      stride=stride),
-            nn.BatchNorm1d(out_channels),
-            nn.ReLU()
-        )
-
-    def forward(self, x):
-        """
-        Args:
-            x: [B,C,L]
-
-        Returns:
-
-        """
-        identity = x
-        out = self.conv(x)
-        return identity + out
-
-
 class PositionalEncoding(nn.Module):
-    def __init__(self, d_model, dropout=0.1, max_len=5000):
+    def __init__(self, d_model, dropout=0.1, max_len=500):
         super(PositionalEncoding, self).__init__()
         ## 位置编码的实现其实很简单，直接对照着公式去敲代码就可以，下面这个代码只是其中一种实现方式；
         ## 从理解来讲，需要注意的就是偶数和奇数在公式上有一个共同部分，我们使用log函数把次方拿下来，方便计算；
@@ -203,310 +120,10 @@ class PositionalEncoding(nn.Module):
         x = x + self.pe[:x.size(0), :]
         return self.dropout(x)
 
-
-# class PositionalEncoding(nn.Module):
-#     def __init__(self, d_model, dropout, seq_len):
-#         """
-#         Position Embedding
-#         Args:
-#             d_model: (int) feature dimension
-#             dropout: (float) drop rate
-#             seq_len: (int) sequence length
-#         """
-#         super().__init__()
-#         self.dropout = nn.Dropout(p=dropout)
-#         pe = torch.zeros(seq_len, d_model).float()
-#         position = torch.arange(0, seq_len).unsqueeze(1).float()
-#         div_term = torch.exp(torch.arange(0, d_model, 2).float() * (-math.log(10000.0) / d_model)).float()
-#         pe[:, 0::2] = torch.sin(position * div_term)
-#         pe[:, 1::2] = torch.cos(position * div_term)
-#         pe = pe.unsqueeze(0)
-#         self.register_buffer('pe', pe)
-#
-#     def forward(self, x):
-#         """
-#
-#         Args:
-#             x:[B,L,C] batch_size,sequence len,channel number
-#
-#         Returns:
-#
-#         """
-#         x = x + torch.autograd.Variable(self.pe[:, :x.size(1)],
-#                                         requires_grad=False)
-#         return self.dropout(x)
-#
-
-class TransformerEncoder(nn.Module):
-    def __init__(self, dim, num_heads, mlp_ratio=4., qkv_bias=False, drop=0., attn_drop=0.,
-                 act_layer=nn.GELU, norm_layer=nn.LayerNorm):
-        """
-
-        Args:
-            dim: (int) feature dimension
-            num_heads: (int) mutil heads number
-            mlp_ratio: (float) hidden layer ratio in feedforward
-            qkv_bias: (bool) use bias or not in qkv linear
-            drop: (float) feedforward dropout
-            attn_drop: (float) attention dropout
-            act_layer: activation layer default (nn.GELU)
-            norm_layer: nomrmalization layer default (nn.LayerNorm)
-        """
-        super().__init__()
-        self.norm1 = norm_layer(dim)
-
-        # 普通注意力：SelfAttention
-        self.attn = SelfAttention(dim=dim, num_heads=num_heads, qkv_bias=qkv_bias, attn_drop=attn_drop, proj_drop=drop)
-        # Vector: Attention_Rel_Vec
-        # self.attn = Attention_Rel_Vec(emb_size=dim, num_heads=num_heads, seq_len=44, dropout=attn_drop)
-        # eRPE: Attention_Rel_Scl
-        # self.attn = Attention_Rel_Scl(emb_size=dim, num_heads=8, seq_len=80, dropout=attn_drop)
-        self.norm2 = norm_layer(dim)
-        mlp_hidden_dim = int(dim * mlp_ratio)
-        self.feedforward = FeedForward(in_features=dim, hidden_features=mlp_hidden_dim, act_layer=act_layer, drop=drop)
-
-    def forward(self, x):
-        # 注意力
-        x = self.norm1(x + self.attn(x))
-        x = self.norm2(x + self.feedforward(x))
-        return x
-
-
-class TransformerBlock(nn.Module):
-    def __init__(self, block_num, dim, num_heads, mlp_ratio=4., qkv_bias=False, drop=0., attn_drop=0.,
-                 act_layer=nn.GELU, norm_layer=nn.LayerNorm):
-        super().__init__()
-        self.block = nn.ModuleList(
-            [TransformerEncoder(dim=dim, num_heads=num_heads, mlp_ratio=mlp_ratio, qkv_bias=qkv_bias, drop=drop,
-                                attn_drop=attn_drop, act_layer=act_layer, norm_layer=norm_layer) for i in
-             range(block_num)])
-
-    def forward(self, x):
-        for model in self.block:
-            x = model(x)
-        return x
-
-
-class SelfAttention(nn.Module):
-    def __init__(self, dim, num_heads=8, qkv_bias=False, attn_drop=0., proj_drop=0.):
-        """
-
-        Args:
-            dim: (int) feature dimension
-            num_heads: (int) mutil heads number
-            qkv_bias:  (bool) use bias or not in qkv linear
-            attn_drop: (float) attention drop rate
-            proj_drop: (float) linear drop rate
-        """
-        super().__init__()
-        self.num_heads = num_heads
-        head_dim = dim // num_heads
-        self.scale = head_dim ** -0.5
-        self.qkv = nn.Linear(dim, dim * 3, bias=qkv_bias)
-        self.attn_drop = nn.Dropout(attn_drop)
-        self.proj = nn.Linear(dim, dim)
-        self.proj_drop = nn.Dropout(proj_drop)
-
-    def forward(self, x):
-        """
-
-        Args:
-            x: [B,L,C] batch_size,sequence len,channel number
-
-        Returns:
-
-        """
-        B, N, C = x.shape
-        qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)
-        q, k, v = qkv.unbind(0)
-
-        attn = (q @ k.transpose(-2, -1)) * self.scale
-        attn = attn.softmax(dim=-1)
-        attn = self.attn_drop(attn)
-
-        x = (attn @ v).transpose(1, 2).reshape(B, N, C)
-        x = self.proj(x)
-        x = self.proj_drop(x)
-        return x
-
-
-class Attention_Rel_Vec(nn.Module):
-    def __init__(self, emb_size, num_heads, seq_len, dropout):
-        super().__init__()
-        self.seq_len = seq_len
-        self.num_heads = num_heads
-        self.scale = emb_size ** -0.5
-        # self.to_qkv = nn.Linear(inp, inner_dim * 3, bias=False)
-        self.key = nn.Linear(emb_size, emb_size, bias=False)
-        self.value = nn.Linear(emb_size, emb_size, bias=False)
-        self.query = nn.Linear(emb_size, emb_size, bias=False)
-
-        self.Er = nn.Parameter(torch.randn(self.seq_len, int(emb_size / num_heads)))
-
-        self.register_buffer(
-            "mask",
-            torch.tril(torch.ones(self.seq_len, self.seq_len))
-            .unsqueeze(0).unsqueeze(0)
-        )
-
-        self.dropout = nn.Dropout(dropout)
-        self.to_out = nn.LayerNorm(emb_size)
-
-    def forward(self, x):
-        batch_size, seq_len, _ = x.shape
-        k = self.key(x).reshape(batch_size, seq_len, self.num_heads, -1).permute(0, 2, 3, 1)
-        v = self.value(x).reshape(batch_size, seq_len, self.num_heads, -1).transpose(1, 2)
-        q = self.query(x).reshape(batch_size, seq_len, self.num_heads, -1).transpose(1, 2)
-        # k,v,q shape = (batch_size, num_heads, seq_len, d_head)
-
-        QEr = torch.matmul(q, self.Er.transpose(0, 1))
-        Srel = self.skew(QEr)
-        # Srel.shape = (batch_size, self.num_heads, seq_len, seq_len)
-
-        attn = torch.matmul(q, k)
-        # attn shape (seq_len, seq_len)
-        attn = (attn + Srel) * self.scale
-
-        attn = nn.functional.softmax(attn, dim=-1)
-        out = torch.matmul(attn, v)
-        # out.shape = (batch_size, num_heads, seq_len, d_head)
-        out = out.transpose(1, 2)
-        # out.shape == (batch_size, seq_len, num_heads, d_head)
-        out = out.reshape(batch_size, seq_len, -1)
-        # out.shape == (batch_size, seq_len, d_model)
-        out = self.to_out(out)
-        return out
-
-    def skew(self, QEr):
-        # QEr.shape = (batch_size, num_heads, seq_len, seq_len)
-        padded = nn.functional.pad(QEr, (1, 0))
-        # padded.shape = (batch_size, num_heads, seq_len, 1 + seq_len)
-        batch_size, num_heads, num_rows, num_cols = padded.shape
-        reshaped = padded.reshape(batch_size, num_heads, num_cols, num_rows)
-        # reshaped.size = (batch_size, num_heads, 1 + seq_len, seq_len)
-        Srel = reshaped[:, :, 1:, :]
-        # Srel.shape = (batch_size, num_heads, seq_len, seq_len)
-        return Srel
-
-
-class Attention_Rel_Scl(nn.Module):
-    def __init__(self, emb_size, num_heads, seq_len, dropout):
-        super().__init__()
-        self.seq_len = seq_len
-        self.num_heads = num_heads
-        self.scale = emb_size ** -0.5
-        # self.to_qkv = nn.Linear(inp, inner_dim * 3, bias=False)
-        self.key = nn.Linear(emb_size, emb_size, bias=False)
-        self.value = nn.Linear(emb_size, emb_size, bias=False)
-        self.query = nn.Linear(emb_size, emb_size, bias=False)
-
-        self.relative_bias_table = nn.Parameter(torch.zeros((2 * self.seq_len - 1), num_heads))
-        coords = torch.meshgrid((torch.arange(1), torch.arange(self.seq_len)))
-        coords = torch.flatten(torch.stack(coords), 1)
-        relative_coords = coords[:, :, None] - coords[:, None, :]
-        relative_coords[1] += self.seq_len - 1
-        relative_coords = rearrange(relative_coords, 'c h w -> h w c')
-        relative_index = relative_coords.sum(-1).flatten().unsqueeze(1)
-        self.register_buffer("relative_index", relative_index)
-
-        self.dropout = nn.Dropout(dropout)
-        self.to_out = nn.LayerNorm(emb_size)
-
-    def forward(self, x):
-        batch_size, seq_len, _ = x.shape
-        k = self.key(x).reshape(batch_size, seq_len, self.num_heads, -1).permute(0, 2, 3, 1)
-        v = self.value(x).reshape(batch_size, seq_len, self.num_heads, -1).transpose(1, 2)
-        q = self.query(x).reshape(batch_size, seq_len, self.num_heads, -1).transpose(1, 2)
-        # k,v,q shape = (batch_size, num_heads, seq_len, d_head)
-
-        attn = torch.matmul(q, k) * self.scale
-        # attn shape (seq_len, seq_len)
-        attn = nn.functional.softmax(attn, dim=-1)
-
-        # Use "gather" for more efficiency on GPUs
-        relative_bias = self.relative_bias_table.gather(0, self.relative_index.repeat(1, 8))
-        relative_bias = rearrange(relative_bias, '(h w) c -> 1 c h w', h=1 * self.seq_len, w=1 * self.seq_len)
-        attn = attn + relative_bias
-
-        # distance_pd = pd.DataFrame(relative_bias[0,0,:,:].cpu().detach().numpy())
-        # distance_pd.to_csv('scalar_position_distance.csv')
-
-        out = torch.matmul(attn, v)
-        # out.shape = (batch_size, num_heads, seq_len, d_head)
-        out = out.transpose(1, 2)
-        # out.shape == (batch_size, seq_len, num_heads, d_head)
-        out = out.reshape(batch_size, seq_len, -1)
-        # out.shape == (batch_size, seq_len, d_model)
-        out = self.to_out(out)
-        return out
-
-
-class FeedForward(nn.Module):
-    def __init__(self, in_features, hidden_features=None, out_features=None, act_layer=nn.GELU, drop=0.):
-        """
-
-        Args:
-            in_features: (int) input feature number
-            hidden_features: (int) hidden_features number
-            out_features: (int) output feature number
-            act_layer: activation function
-            drop: drop rate
-        """
-        super().__init__()
-        out_features = out_features or in_features
-        hidden_features = hidden_features or in_features
-        self.fc1 = nn.Linear(in_features, hidden_features)
-        self.act = act_layer()
-        self.drop1 = nn.Dropout(drop)
-        self.fc2 = nn.Linear(hidden_features, out_features)
-        self.drop2 = nn.Dropout(drop)
-
-    def forward(self, x):
-        x = self.fc1(x)
-        x = self.act(x)
-        x = self.drop1(x)
-        x = self.fc2(x)
-        x = self.drop2(x)
-        return x
-
-
-class Decoder(nn.Module):
-    def __init__(self, res_num=4, out_channels=1, feature_num=128):
-        """
-
-        Args:
-            out_channels: (int) output feature number
-            res_num: (int) resnet block number
-            feature_num: (int) feature dimension
-        """
-        super().__init__()
-        self.rescnn = nn.ModuleList(
-            [ResCNN(in_channels=feature_num, out_channels=feature_num, kernel_size=7, padding=3, stride=1) for
-             i in range(res_num)])
-        self.out_layer = nn.Sequential(
-            nn.Conv1d(in_channels=feature_num, out_channels=out_channels, kernel_size=7, padding=3, stride=1),
-            nn.Sigmoid()  # normal
-            # nn.ReLU()   # nonormal
-        )
-
-    def forward(self, x):
-        """
-        Args:
-            x: input sequence,shape[B,C,L] B:batch size，C：特征维度,default=1，L序列长度
-
-        Returns:
-        """
-        # for model in self.rescnn:
-        #     x = model(x)
-        x = self.out_layer(x)
-        # x = x[:, :, -1] # 取最后一个时间步的输出
-        return x
-
-
 # Transformer结构
 class Transformer(nn.Module):
-    def __init__(self, in_channels=1, out_channels=1, feature_num=128, res_num=4, encoder_num=4, use_pe=False,
-                 dim=128, seq_len=160, num_heads=4, mlp_ratio=4., qkv_bias=False, drop=0., attn_drop=0.,
+    def __init__(self, in_channels=1, out_channels=1, feature_num=64, res_num=4, encoder_num=4, use_pe=False,
+                 dim=64, seq_len=500, num_heads=2, mlp_ratio=4., qkv_bias=False, drop=0., attn_drop=0.,
                  position_drop=0.,
                  act_layer=nn.GELU, norm_layer=nn.LayerNorm
                  ):
@@ -527,8 +144,8 @@ class Transformer(nn.Module):
         self.target_positional_encoding = PositionalEncoding(dim, max_len=look_back)
 
         # 创建输入序列位置编码和目标序列位置编码的嵌入层
-        self.input_pos_embedding = torch.nn.Embedding(5000, embedding_dim=dim)
-        self.target_pos_embedding = torch.nn.Embedding(5000, embedding_dim=dim)
+        self.input_pos_embedding = torch.nn.Embedding(500, embedding_dim=dim)
+        self.target_pos_embedding = torch.nn.Embedding(500, embedding_dim=dim)
         # 创建输入和输出特征的线性投影层
         self.input_projection = torch.nn.Linear(input_features, dim)
         self.output_projection = torch.nn.Linear(input_features, dim)
@@ -539,8 +156,8 @@ class Transformer(nn.Module):
                                                          dim_feedforward=2 * dim)
 
         # 创建Transformer编码器和解码器
-        self.encoder = torch.nn.TransformerEncoder(encoder_layer, num_layers=4)
-        self.decoder = torch.nn.TransformerDecoder(decoder_layer, num_layers=4)
+        self.encoder = torch.nn.TransformerEncoder(encoder_layer, num_layers=1)
+        self.decoder = torch.nn.TransformerDecoder(decoder_layer, num_layers=1)
         self.linear = torch.nn.Linear(dim, 1)
         self.fc = nn.Linear(look_back, future_window)
 
@@ -601,7 +218,7 @@ class Transformer(nn.Module):
         return out
 
 
-model = Transformer(in_channels=input_features, out_channels=1, feature_num=128).to(device)
+model = Transformer(in_channels=input_features, out_channels=1, feature_num=64).to(device)
 
 # 计算参数数量
 def count_parameters(model):
@@ -700,7 +317,7 @@ if train_model:
     plt.show()
 
 # 加载模型预测
-model = Transformer(in_channels=input_features, out_channels=1, feature_num=128).to(device)
+model = Transformer(in_channels=input_features, out_channels=1, feature_num=64).to(device)
 model.load_state_dict(torch.load('../pth/best_Transformer_trainModel_DEN_缺失.pth'))
 model.to(device)
 model.eval()

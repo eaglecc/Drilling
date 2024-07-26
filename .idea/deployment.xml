@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
-  <component name="PublishConfigData" autoUpload="Always" serverName="root@connect.westc.gpuhub.com:39244 password" remoteFilesAllowedToDisappearOnAutoupload="false">
+  <component name="PublishConfigData" autoUpload="Always" remoteFilesAllowedToDisappearOnAutoupload="false" confirmBeforeUploading="false">
+    <option name="confirmBeforeUploading" value="false" />
     <serverData>
       <paths name="root@connect.bjb1.seetacloud.com:12508 password">
         <serverdata>
@@ -37,6 +38,13 @@
           </mappings>
         </serverdata>
       </paths>
+      <paths name="root@connect.westb.seetacloud.com:39251 password">
+        <serverdata>
+          <mappings>
+            <mapping deploy="/tmp/pycharm_project_349" local="$PROJECT_DIR$" />
+          </mappings>
+        </serverdata>
+      </paths>
       <paths name="root@connect.westb.seetacloud.com:39851 password">
         <serverdata>
           <mappings>
@@ -45,6 +53,13 @@
         </serverdata>
       </paths>
       <paths name="root@connect.westb.seetacloud.com:45401 password">
+        <serverdata>
+          <mappings>
+            <mapping deploy="/root/autodl-tmp/drill" local="$PROJECT_DIR$" />
+          </mappings>
+        </serverdata>
+      </paths>
+      <paths name="root@connect.westb.seetacloud.com:47697 password">
         <serverdata>
           <mappings>
             <mapping deploy="/root/autodl-tmp/drill" local="$PROJECT_DIR$" />

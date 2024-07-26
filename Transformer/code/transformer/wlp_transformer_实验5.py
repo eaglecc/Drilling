@@ -34,7 +34,6 @@ data = pd.read_csv('../../data/daqingyoutian/vertical_all_A1.csv')
 data = data.fillna(0)  # 将数据中的所有缺失值替换为0
 # data_x = data[['RMN-RMG', 'CAL     .cm ', 'SP      .mv  ', 'GR      .   ', 'HAC     .us/m', 'BHC     .']].values
 data_x = data[['RMN-RMG', 'HAC     .us/m','GR      .   ',  'CAL     .cm ']].values
-
 data_y = data['DEN     .g/cm3 '].values
 input_features = 4
 
@@ -71,8 +70,8 @@ train_features = np.concatenate((train_features1, train_features2), axis=0)
 train_target1 = y[:train_size1]
 train_target2 = y[train_size2:]
 train_target = np.concatenate((train_target1, train_target2), axis=0)
-test_features = X[train_size1:train_size2]
-test_target = y[train_size1:train_size2]
+test_features = X[train_size1:train_size2-10]
+test_target = y[train_size1:train_size2-10]
 
 train_features = torch.FloatTensor(train_features).to(device)
 train_target = torch.FloatTensor(train_target).to(device)
@@ -99,7 +98,7 @@ def transformer_generate_tgt_mask(length, device):
 
 
 class Input_Embedding(nn.Module):
-    def __init__(self, in_channels=1, res_num=4, feature_num=64):
+    def __init__(self, in_channels=1, res_num=4, feature_num=128):
         """
         Input_Embedding layer
         Args:
@@ -446,7 +445,7 @@ class FeedForward(nn.Module):
 
 
 class Decoder(nn.Module):
-    def __init__(self, res_num=4, out_channels=1, feature_num=64):
+    def __init__(self, res_num=4, out_channels=1, feature_num=128):
         """
 
         Args:
@@ -481,8 +480,8 @@ class Decoder(nn.Module):
 
 # Transformer结构
 class Transformer(nn.Module):
-    def __init__(self, in_channels=1, out_channels=1, feature_num=64, res_num=4, encoder_num=4, use_pe=False,
-                 dim=64, seq_len=160, num_heads=4, mlp_ratio=4., qkv_bias=False, drop=0., attn_drop=0.,
+    def __init__(self, in_channels=1, out_channels=1, feature_num=128, res_num=4, encoder_num=4, use_pe=False,
+                 dim=128, seq_len=200, num_heads=8, mlp_ratio=4., qkv_bias=False, drop=0., attn_drop=0.,
                  position_drop=0.,
                  act_layer=nn.GELU, norm_layer=nn.LayerNorm
                  ):
@@ -524,7 +523,7 @@ class Transformer(nn.Module):
         return x
 
 
-model = Transformer(in_channels=input_features, out_channels=1, feature_num=64).to(device)
+model = Transformer(in_channels=input_features, out_channels=1, feature_num=128).to(device)
 # 计算参数数量
 def count_parameters(model):
     return sum(p.numel() for p in model.parameters() if p.requires_grad)
@@ -556,7 +555,7 @@ optimizer = torch.optim.Adam(model.parameters(), lr=0.0001)
 criterion = torch.nn.MSELoss().to(device)
 
 # 训练模型
-train_model = False
+train_model = True
 if train_model:
     val_loss = []
     train_loss = []
@@ -624,7 +623,7 @@ if train_model:
     plt.show()
 
 # 加载模型预测
-model = Transformer(in_channels=input_features, out_channels=1, feature_num=64).to(device)
+model = Transformer(in_channels=input_features, out_channels=1, feature_num=128).to(device)
 model.load_state_dict(torch.load('../pth/best_WLP_Transformer5_DEN.pth'))
 model.to(device)
 model.eval()

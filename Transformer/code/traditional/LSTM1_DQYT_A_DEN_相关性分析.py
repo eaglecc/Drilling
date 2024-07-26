@@ -52,16 +52,15 @@ data_y = min_max_normalize(data_y)
 
 # 2. 定义回看窗口大小
 look_back = 500
-future_window = 300
 X, y = [], []
-for i in range(len(data_x) - look_back - future_window + 1):
+for i in range(len(data_x) - look_back + 1):
     X.append(data_x[i:i + look_back])
-    y.append(data_y[i + look_back: i + look_back + future_window])
+    y.append(data_y[i:i + look_back])
 X = np.array(X)
 y = np.array(y)
 
 # 3. 划分数据集为训练集和测试集
-train_size = int(0.90 * len(X))
+train_size = int(0.80 * len(X))
 test_size = int(len(X) - train_size)
 train_features = X[:train_size]
 train_target = y[:train_size]
@@ -72,7 +71,7 @@ train_target = torch.FloatTensor(train_target).to(device)
 test_features = torch.FloatTensor(test_features).to(device)
 
 # 定义批次大小
-batch_size = 32  # 可以根据需求调整
+batch_size = 8  # 可以根据需求调整
 
 # 使用DataLoader创建数据加载器
 train_dataset = torch.utils.data.TensorDataset(train_features, train_target)
@@ -87,7 +86,7 @@ class LSTMModel(nn.Module):
         self.num_layers = num_layers
         self.lstm = nn.LSTM(input_size, hidden_size, num_layers, batch_first=True)
         # self.dropout = nn.Dropout(p=0.3)
-        self.fc = nn.Linear(hidden_size, future_window)
+        self.fc = nn.Linear(hidden_size, look_back)
 
     def forward(self, x):
         out, _ = self.lstm(x)  # （3050，50，6）-->（3050，50，64）
@@ -110,32 +109,31 @@ optimizer = optim.Adam(model.parameters(), lr=0.0001)
 
 # 7. 训练模型
 # 7.1 不分batchsize进行训练
-# num_epochs = 100
-# for epoch in range(num_epochs):
-#     # 前向传播
-#     outputs = model(train_features)
-#     loss = criterion(outputs, train_target)
-#     # 反向传播和优化
-#
-#     optimizer.zero_grad()
-#     loss.backward()
-#     optimizer.step()
-#     print(f'Epoch [{epoch + 1}/{num_epochs}], Loss: {loss.item():.4f}')
-# 7.2 分batchsize进行训练
-num_epochs = 60
+num_epochs = 100
 for epoch in range(num_epochs):
-    for batch_features, batch_target in train_loader:
-        # 将批次数据移到GPU上（如果可用）
-        batch_features = batch_features.to(device)
-        batch_target = batch_target.to(device)
-        # 前向传播
-        outputs = model(batch_features)
-        loss = criterion(outputs, batch_target)
-        # 反向传播和优化
-        optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()
-    print(f'Epoch [{epoch + 1}/{num_epochs}], Loss: {loss.item():.6f}')
+    # 前向传播
+    outputs = model(train_features)
+    loss = criterion(outputs, train_target)
+    # 反向传播和优化
+    optimizer.zero_grad()
+    loss.backward()
+    optimizer.step()
+    print(f'Epoch [{epoch + 1}/{num_epochs}], Loss: {loss.item():.4f}')
+# 7.2 分batchsize进行训练
+# num_epochs = 20
+# for epoch in range(num_epochs):
+#     for batch_features, batch_target in train_loader:
+#         # 将批次数据移到GPU上（如果可用）
+#         batch_features = batch_features.to(device)
+#         batch_target = batch_target.to(device)
+#         # 前向传播
+#         outputs = model(batch_features)
+#         loss = criterion(outputs, batch_target)
+#         # 反向传播和优化
+#         optimizer.zero_grad()
+#         loss.backward()
+#         optimizer.step()
+#     print(f'Epoch [{epoch + 1}/{num_epochs}], Loss: {loss.item():.6f}')
 
 # 8. 测试集预测
 model.eval()
@@ -175,11 +173,11 @@ plt.show()
 #
 # 11. 存储预测结果
 # 反归一化
-predicted_original_data = predicted1 * (max_value_y - min_value_y) + min_value_y
-test_target_original_data = test_target_train * (max_value_y - min_value_y) + min_value_y
-file_name = '../../result/wlp_transformer/相关性分析_lstm_DEN_全部特征_result.xlsx'
+# predicted_original_data = predicted1 * (max_value_y - min_value_y) + min_value_y
+# test_target_original_data = test_target_train * (max_value_y - min_value_y) + min_value_y
+# # file_name = '../../result/wlp_transformer/相关性分析_lstm_DEN_全部特征_result.xlsx'
 # file_name = '../../result/wlp_transformer/相关性分析_lstm_DEN_高相关性特征_result.xlsx'
-df = pd.DataFrame()  # 创建一个新 DataFrame
-df['lstm_DEN_predicted'] = predicted_original_data
-df['lstm_DEN_true'] = test_target_original_data.flatten()
-df.to_excel(file_name, index=False)  # index=False 防止写入索引列
+# df = pd.DataFrame()  # 创建一个新 DataFrame
+# df['lstm_DEN_predicted'] = predicted_original_data
+# df['lstm_DEN_true'] = test_target_original_data.flatten()
+# df.to_excel(file_name, index=False)  # index=False 防止写入索引列

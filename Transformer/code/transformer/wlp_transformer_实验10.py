@@ -30,7 +30,7 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 # 1. 导入数据
 data = pd.read_csv('../../data/daqingyoutian/vertical_all_A1.csv')
 data = data.fillna(0)  # 将数据中的所有缺失值替换为0
-data_x = data[['RMN-RMG', 'HAC     .us/m' ,'SP      .mv  ',  'CAL     .cm ']].values
+data_x = data[['RMN-RMG','GR      .   ','SP      .mv  ', 'DEN     .g/cm3 ']].values
 data_y = data['BHC     .'].values
 input_features = 4
 
@@ -96,7 +96,7 @@ def transformer_generate_tgt_mask(length, device):
 
 
 class Input_Embedding(nn.Module):
-    def __init__(self, in_channels=1, res_num=4, feature_num=128):
+    def __init__(self, in_channels=1, res_num=4, feature_num=16):
         """
         Input_Embedding layer
         Args:
@@ -133,7 +133,7 @@ class Input_Embedding(nn.Module):
 
         # lstm层
         # x = x.permute(0, 2, 1)
-        # x, _ = self.lstm(x)  # （3050，50，6）-->（3050，50，64）
+        # x, _ = self.lstm(x)  # （3050，50，6）-->（3050，50，16）
         # x = self.dropout(x)
         # x = x.permute(0, 2, 1)
 
@@ -178,7 +178,7 @@ class ResCNN(nn.Module):
 
 
 class PositionalEncoding(nn.Module):
-    def __init__(self, d_model, dropout=0.1, max_len=5000):
+    def __init__(self, d_model, dropout=0.1, max_len=500):
         super(PositionalEncoding, self).__init__()
         ## 位置编码的实现其实很简单，直接对照着公式去敲代码就可以，下面这个代码只是其中一种实现方式；
         ## 从理解来讲，需要注意的就是偶数和奇数在公式上有一个共同部分，我们使用log函数把次方拿下来，方便计算；
@@ -471,7 +471,7 @@ class FeedForward(nn.Module):
 
 
 class Decoder(nn.Module):
-    def __init__(self, res_num=4, out_channels=1, feature_num=128):
+    def __init__(self, res_num=4, out_channels=1, feature_num=16):
         """
 
         Args:
@@ -505,8 +505,8 @@ class Decoder(nn.Module):
 
 # Transformer结构
 class Transformer(nn.Module):
-    def __init__(self, in_channels=1, out_channels=1, feature_num=128, res_num=4, encoder_num=4, use_pe=False,
-                 dim=128, seq_len=160, num_heads=4, mlp_ratio=4., qkv_bias=False, drop=0., attn_drop=0.,
+    def __init__(self, in_channels=1, out_channels=1, feature_num=16, res_num=4, encoder_num=4, use_pe=False,
+                 dim=16, seq_len=500, num_heads=2, mlp_ratio=4., qkv_bias=False, drop=0., attn_drop=0.,
                  position_drop=0.,
                  act_layer=nn.GELU, norm_layer=nn.LayerNorm
                  ):
@@ -527,8 +527,8 @@ class Transformer(nn.Module):
         self.target_positional_encoding = PositionalEncoding(dim, max_len=look_back)
 
         # 创建输入序列位置编码和目标序列位置编码的嵌入层
-        self.input_pos_embedding = torch.nn.Embedding(5000, embedding_dim=dim)
-        self.target_pos_embedding = torch.nn.Embedding(5000, embedding_dim=dim)
+        self.input_pos_embedding = torch.nn.Embedding(500, embedding_dim=dim)
+        self.target_pos_embedding = torch.nn.Embedding(500, embedding_dim=dim)
         # 创建输入和输出特征的线性投影层
         self.input_projection = torch.nn.Linear(input_features, dim)
         self.output_projection = torch.nn.Linear(input_features, dim)
@@ -539,8 +539,8 @@ class Transformer(nn.Module):
                                                          dim_feedforward=2 * dim)
 
         # 创建Transformer编码器和解码器
-        self.encoder = torch.nn.TransformerEncoder(encoder_layer, num_layers=4)
-        self.decoder = torch.nn.TransformerDecoder(decoder_layer, num_layers=4)
+        self.encoder = torch.nn.TransformerEncoder(encoder_layer, num_layers=1)
+        self.decoder = torch.nn.TransformerDecoder(decoder_layer, num_layers=1)
         self.linear = torch.nn.Linear(dim, 1)
         self.fc = nn.Linear(look_back, future_window)
 
@@ -601,7 +601,7 @@ class Transformer(nn.Module):
         return out
 
 
-model = Transformer(in_channels=input_features, out_channels=1, feature_num=128).to(device)
+model = Transformer(in_channels=input_features, out_channels=1, feature_num=16).to(device)
 
 # 计算参数数量
 def count_parameters(model):
@@ -629,8 +629,8 @@ def test():
     return np.mean(val_epoch_loss)
 
 
-epochs = 5
-optimizer = torch.optim.Adam(model.parameters(), lr=0.0001)
+epochs = 20
+optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
 criterion = torch.nn.MSELoss().to(device)
 
 # 训练模型
@@ -700,7 +700,7 @@ if train_model:
     plt.show()
 
 # 加载模型预测
-model = Transformer(in_channels=input_features, out_channels=1, feature_num=128).to(device)
+model = Transformer(in_channels=input_features, out_channels=1, feature_num=16).to(device)
 model.load_state_dict(torch.load('../pth/best_Transformer_trainModel_BHC_缺失.pth'))
 model.to(device)
 model.eval()
