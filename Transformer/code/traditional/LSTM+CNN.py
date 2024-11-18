@@ -13,6 +13,8 @@ import warnings
 import torch
 import torch.nn as nn
 import torch.optim as optim
+from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
+
 
 warnings.filterwarnings("ignore")
 plt.rcParams['font.sans-serif'] = ['SimHei']  # 图例中显示中文
@@ -144,10 +146,13 @@ mse = np.mean((test_target - predicted) ** 2)
 rmse = np.sqrt(np.mean((test_target - predicted) ** 2))
 mape = np.mean(np.abs((test_target - predicted) / test_target))
 mae = np.mean(np.abs(test_target - predicted))
+r2 = r2_score(test_target, predicted)
+
 print("MSE", mse)
 print("MAE", mae)
 print("RMSE", rmse)
 print("MAPE:", mape)
+print("R2:", r2)
 
 # MSE 0.09646155515447048
 # MAE 0.23884721293198313
